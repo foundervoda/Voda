@@ -1,0 +1,5 @@
+# Each sub-project (backend/, mobile/, web/) keeps its own .gitignore for
+# tool-specific output. This covers anything that might land at the repo root.
+node_modules/
+.env
+.DS_Store

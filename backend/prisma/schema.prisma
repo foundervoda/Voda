@@ -1,0 +1,119 @@
+// Mall Delivery App — Prisma schema
+// Source of truth for the database. Run `npx prisma migrate dev` after any change.
+// See Voda Dev Handbook §09 (Data Models) for the reference design.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CUSTOMER
+  RUNNER
+  RIDER
+  STORE_STAFF
+}
+
+enum OrderStatus {
+  PENDING
+  RUNNER_ASSIGNED
+  COLLECTED
+  HANDED_TO_RIDER
+  OUT_FOR_DELIVERY
+  ARRIVED
+  DELIVERED
+  RETURNING
+  RETURNED
+  REFUNDED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String
+  role      Role
+  password  String // bcrypt hash
+
+  // Only set when role === STORE_STAFF
+  storeId   String?
+  store     Store?   @relation(fields: [storeId], references: [id])
+
+  customerOrders Order[] @relation("CustomerOrders")
+  runnerOrders   Order[] @relation("RunnerOrders")
+  riderOrders    Order[] @relation("RiderOrders")
+
+  createdAt DateTime @default(now())
+}
+
+model Store {
+  id        String    @id @default(uuid())
+  name      String
+  location  String
+  products  Product[]
+  staff     User[]
+  createdAt DateTime  @default(now())
+}
+
+model Product {
+  id        String      @id @default(uuid())
+  name      String
+  price     Decimal
+  images    String[]
+  category  String
+  trending  Boolean     @default(false)
+
+  storeId   String
+  store     Store       @relation(fields: [storeId], references: [id])
+
+  variants  Variant[]
+  orderItems OrderItem[]
+}
+
+model Variant {
+  id        String      @id @default(uuid())
+  size      String
+  color     String?
+  stock     Int         @default(0)
+
+  productId String
+  product   Product     @relation(fields: [productId], references: [id])
+
+  orderItems OrderItem[]
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  status       OrderStatus @default(PENDING)
+  deliveryAddr String
+  etaMinutes   Int
+  tryTimerEnd  DateTime? // set when rider marks ARRIVED
+
+  customerId   String
+  customer     User        @relation("CustomerOrders", fields: [customerId], references: [id])
+
+  runnerId     String? // assigned after PENDING
+  runner       User?       @relation("RunnerOrders", fields: [runnerId], references: [id])
+
+  riderId      String? // assigned after COLLECTED
+  rider        User?       @relation("RiderOrders", fields: [riderId], references: [id])
+
+  items        OrderItem[]
+  createdAt    DateTime    @default(now())
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  quantity  Int     @default(1)
+
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  variantId String
+  variant   Variant @relation(fields: [variantId], references: [id])
+}

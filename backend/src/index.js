@@ -1,0 +1,35 @@
+require("dotenv/config");
+const http = require("http");
+const express = require("express");
+const cors = require("cors");
+const { Server } = require("socket.io");
+
+const authRoutes = require("./routes/auth");
+const { errorHandler } = require("./middleware/errorHandler");
+const { registerSocketHandlers } = require("./sockets");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
+app.use(cors());
+app.use(express.json());
+
+// Make the socket server reachable from route handlers via req.app.get("io")
+app.set("io", io);
+
+app.get("/health", (req, res) => res.json({ data: { status: "ok" }, error: null }));
+
+app.use("/api/auth", authRoutes);
+// TODO: app.use("/api/products", productRoutes);
+// TODO: app.use("/api/orders", orderRoutes);
+// TODO: app.use("/api/store", storeRoutes);
+// TODO: app.use("/api/runner", runnerRoutes);
+// TODO: app.use("/api/rider", riderRoutes);
+
+app.use(errorHandler);
+
+registerSocketHandlers(io);
+
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => console.log(`API server listening on port ${PORT}`));
