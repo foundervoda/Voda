@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const prisma = require("../lib/prisma");
 
 // Room strategy (Handbook §11):
 //   user:{userId}   — personal room, e.g. rider_location_update
@@ -6,11 +7,17 @@ const jwt = require("jsonwebtoken");
 //   order:{orderId} — order-specific updates, e.g. order_update, try_timer_start
 const registerSocketHandlers = (io) => {
   io.on("connection", (socket) => {
-    // Client authenticates by sending its JWT once connected
-    socket.on("authenticate", (token) => {
+    // Client sends its JWT once connected; server joins the user's personal room
+    // and auto-joins the store room for STORE_STAFF so new_order arrives immediately
+    socket.on("authenticate", async (token) => {
       try {
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         socket.join(`user:${payload.sub}`);
+
+        if (payload.role === "STORE_STAFF") {
+          const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+          if (user?.storeId) socket.join(`store:${user.storeId}`);
+        }
       } catch (err) {
         socket.emit("auth_error", { message: "Invalid token" });
       }
@@ -19,7 +26,7 @@ const registerSocketHandlers = (io) => {
     socket.on("join_store_room", (storeId) => socket.join(`store:${storeId}`));
     socket.on("join_order_room", (orderId) => socket.join(`order:${orderId}`));
 
-    // Rider relays its GPS position; server forwards it to the customer's room
+    // Rider relays GPS; server forwards to the order room (customer + rider are both in it)
     socket.on("rider_location", ({ orderId, lat, lng }) => {
       io.to(`order:${orderId}`).emit("rider_location_update", { lat, lng });
     });

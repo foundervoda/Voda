@@ -1,0 +1,126 @@
+const { Router } = require("express");
+const prisma = require("../lib/prisma");
+const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../middleware/errorHandler");
+
+const router = Router();
+
+// POST /api/orders — Customer places an order from their cart
+router.post(
+  "/",
+  requireAuth,
+  requireRole("CUSTOMER"),
+  asyncHandler(async (req, res) => {
+    const { deliveryAddr, etaMinutes, items } = req.body;
+
+    if (!deliveryAddr || !items || items.length === 0) {
+      return res.status(400).json({
+        data: null,
+        error: { message: "deliveryAddr and items are required", code: "VALIDATION_ERROR" },
+      });
+    }
+
+    // Resolve all variants to get their storeId via their product
+    const variantIds = items.map((i) => i.variantId);
+    const variants = await prisma.variant.findMany({
+      where: { id: { in: variantIds } },
+      include: { product: { select: { storeId: true } } },
+    });
+
+    if (variants.length !== items.length) {
+      return res.status(400).json({
+        data: null,
+        error: { message: "One or more variants not found", code: "VALIDATION_ERROR" },
+      });
+    }
+
+    // All items must belong to the same store (single-store order)
+    const storeIds = [...new Set(variants.map((v) => v.product.storeId))];
+    if (storeIds.length > 1) {
+      return res.status(400).json({
+        data: null,
+        error: { message: "All items must be from the same store", code: "VALIDATION_ERROR" },
+      });
+    }
+    const storeId = storeIds[0];
+
+    const order = await prisma.order.create({
+      data: {
+        deliveryAddr,
+        etaMinutes: etaMinutes ?? 30,
+        customerId: req.user.id,
+        items: {
+          create: items.map((i) => ({
+            quantity: i.quantity ?? 1,
+            productId: i.productId,
+            variantId: i.variantId,
+          })),
+        },
+      },
+      include: {
+        items: { include: { product: true, variant: true } },
+      },
+    });
+
+    // Emit new_order to the store's socket room so the dashboard picks it up
+    const io = req.app.get("io");
+    io.to(`store:${storeId}`).emit("new_order", { order });
+
+    res.status(201).json({ data: { order }, error: null });
+  })
+);
+
+// GET /api/orders/:id — Anyone involved in the order can fetch it
+router.get(
+  "/:id",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: { include: { product: true, variant: true } },
+        customer: { select: { id: true, email: true, phone: true } },
+        runner:  { select: { id: true, email: true, phone: true } },
+        rider:   { select: { id: true, email: true, phone: true } },
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+
+    res.json({ data: { order }, error: null });
+  })
+);
+
+// PUT /api/orders/:id/status — Update order status (store, runner, rider, or customer)
+router.put(
+  "/:id/status",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ data: null, error: { message: "status is required", code: "VALIDATION_ERROR" } });
+    }
+
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status },
+      include: { items: { include: { product: true, variant: true } } },
+    });
+
+    // Notify everyone in the order room of the status change
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order });
+
+    res.json({ data: { order }, error: null });
+  })
+);
+
+module.exports = router;

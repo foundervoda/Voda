@@ -5,6 +5,8 @@ const cors = require("cors");
 const { Server } = require("socket.io");
 
 const authRoutes = require("./routes/auth");
+const orderRoutes = require("./routes/orders");
+const productRoutes = require("./routes/products");
 const { errorHandler } = require("./middleware/errorHandler");
 const { registerSocketHandlers } = require("./sockets");
 
@@ -21,8 +23,8 @@ app.set("io", io);
 app.get("/health", (req, res) => res.json({ data: { status: "ok" }, error: null }));
 
 app.use("/api/auth", authRoutes);
-// TODO: app.use("/api/products", productRoutes);
-// TODO: app.use("/api/orders", orderRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/products", productRoutes);
 // TODO: app.use("/api/store", storeRoutes);
 // TODO: app.use("/api/runner", runnerRoutes);
 // TODO: app.use("/api/rider", riderRoutes);

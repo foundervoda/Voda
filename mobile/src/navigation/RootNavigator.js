@@ -9,7 +9,7 @@ import { SocketProvider } from "../api/SocketContext";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 // Change this to false whenever you want to test the normal Login screen again!
-const SIMULATE_PRODUCT_SCREEN = true;
+const SIMULATE_PRODUCT_SCREEN = false;
 
 // Switches between the auth stack and the actor's app shell based on session state
 export default function RootNavigator() {
