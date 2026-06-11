@@ -22,6 +22,11 @@ export const useAuthStore = create((set) => ({
     set({ user: null });
   },
 
+  updateProfile: async (payload) => {
+    const { data } = await api.put("/auth/me", payload);
+    set({ user: data.data.user });
+  },
+
   // Called on app start — restores the session from a stored token
   hydrate: async () => {
     try {

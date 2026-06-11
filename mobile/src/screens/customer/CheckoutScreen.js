@@ -2,6 +2,11 @@ import { useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, ScrollView } from "react-native";
 import { useOrderStore } from "../../store/useOrderStore";
 
+const formatRupeePrice = (amount) => {
+  const rounded = Math.round(amount);
+  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
+
 export default function CheckoutScreen({ navigation }) {
   const { cart, placeOrder } = useOrderStore();
   const [address, setAddress] = useState("");
@@ -46,15 +51,16 @@ export default function CheckoutScreen({ navigation }) {
         {cart.map((item) => (
           <View key={item.variantId} style={s.summaryRow}>
             <Text style={s.summaryItem}>{item.name}{item.size ? ` (${item.size})` : ""} × {item.quantity}</Text>
-            <Text style={s.summaryPrice}>${(item.price * item.quantity).toFixed(2)}</Text>
+            <Text style={s.summaryPrice}>₹{formatRupeePrice(item.price * item.quantity)}</Text>
           </View>
         ))}
         <View style={s.divider} />
         <View style={s.summaryRow}>
           <Text style={s.totalLabel}>Total</Text>
-          <Text style={s.totalAmt}>${total.toFixed(2)}</Text>
+          <Text style={s.totalAmt}>₹{formatRupeePrice(total)}</Text>
         </View>
       </View>
+
 
       <View style={s.paymentBox}>
         <Text style={s.paymentTitle}>Payment</Text>

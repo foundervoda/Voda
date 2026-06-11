@@ -32,7 +32,7 @@ export default function OrderConfirmScreen({ route, navigation }) {
         ))}
       </View>
 
-      <Pressable style={s.btn} onPress={() => navigation.navigate("Home")}>
+      <Pressable style={s.btn} onPress={() => navigation.navigate("CustomerTabs", { screen: "HomeTab" })}>
         <Text style={s.btnText}>Back to Home</Text>
       </Pressable>
     </ScrollView>
