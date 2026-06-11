@@ -1,15 +1,16 @@
 import { useEffect } from "react";
 import { View, ActivityIndicator } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuthStore } from "../store/useAuthStore";
 import AuthNavigator from "./AuthNavigator";
 import CustomerTabs from "./CustomerTabs";
-import ProductDetailScreen from "../screens/customer/ProductDetailScreen"; // 👈 Added your screen import
+import ProductDetailScreen from "../screens/customer/ProductDetailScreen";
+import CartScreen from "../screens/customer/CartScreen";
+import CheckoutScreen from "../screens/customer/CheckoutScreen";
+import OrderConfirmScreen from "../screens/customer/OrderConfirmScreen";
 import { SocketProvider } from "../api/SocketContext";
-import { SafeAreaProvider } from "react-native-safe-area-context";
 
-// Change this to false whenever you want to test the normal Login screen again!
-const SIMULATE_PRODUCT_SCREEN = false;
+const Stack = createNativeStackNavigator();
 
 // Switches between the auth stack and the actor's app shell based on session state
 export default function RootNavigator() {
@@ -27,19 +28,48 @@ export default function RootNavigator() {
     );
   }
 
-  return (
-    <NavigationContainer>
-      {SIMULATE_PRODUCT_SCREEN ? (
-        <SafeAreaProvider>
-          <ProductDetailScreen />
-        </SafeAreaProvider>
-      ) : user ? (
-        <SocketProvider>
-          <CustomerTabs />
-        </SocketProvider>
-      ) : (
-        <AuthNavigator />
-      )}
-    </NavigationContainer>
+  return user ? (
+    <SocketProvider>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="CustomerTabs" component={CustomerTabs} />
+        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+        <Stack.Screen 
+          name="Cart" 
+          component={CartScreen} 
+          options={{ 
+            headerShown: true, 
+            title: "My Cart", 
+            headerStyle: { backgroundColor: "#fdf9ea" }, 
+            headerTintColor: "#012a62", 
+            headerTitleStyle: { fontWeight: "700" } 
+          }} 
+        />
+        <Stack.Screen 
+          name="Checkout" 
+          component={CheckoutScreen} 
+          options={{ 
+            headerShown: true, 
+            title: "Checkout", 
+            headerStyle: { backgroundColor: "#fdf9ea" }, 
+            headerTintColor: "#012a62", 
+            headerTitleStyle: { fontWeight: "700" } 
+          }} 
+        />
+        <Stack.Screen 
+          name="OrderConfirm" 
+          component={OrderConfirmScreen} 
+          options={{ 
+            headerShown: true, 
+            title: "Order Confirmed", 
+            headerLeft: () => null,
+            headerStyle: { backgroundColor: "#fdf9ea" }, 
+            headerTintColor: "#012a62", 
+            headerTitleStyle: { fontWeight: "700" } 
+          }} 
+        />
+      </Stack.Navigator>
+    </SocketProvider>
+  ) : (
+    <AuthNavigator />
   );
 }

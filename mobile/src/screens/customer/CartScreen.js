@@ -1,6 +1,11 @@
 import { View, Text, FlatList, Pressable, Image, StyleSheet } from "react-native";
 import { useOrderStore } from "../../store/useOrderStore";
 
+const formatRupeePrice = (amount) => {
+  const rounded = Math.round(amount);
+  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
+
 export default function CartScreen({ navigation }) {
   const { cart, updateQuantity, removeFromCart } = useOrderStore();
 
@@ -30,7 +35,7 @@ export default function CartScreen({ navigation }) {
             <View style={s.info}>
               <Text style={s.name}>{item.name}</Text>
               {item.size ? <Text style={s.meta}>Size: {item.size}</Text> : null}
-              <Text style={s.price}>${(item.price * item.quantity).toFixed(2)}</Text>
+              <Text style={s.price}>₹{formatRupeePrice(item.price * item.quantity)}</Text>
             </View>
             <View style={s.qty}>
               <Pressable style={s.qtyBtn} onPress={() => updateQuantity(item.variantId, item.quantity - 1)}>
@@ -47,7 +52,7 @@ export default function CartScreen({ navigation }) {
           <View style={s.footer}>
             <View style={s.totalRow}>
               <Text style={s.totalLabel}>Total</Text>
-              <Text style={s.totalAmt}>${total.toFixed(2)}</Text>
+              <Text style={s.totalAmt}>₹{formatRupeePrice(total)}</Text>
             </View>
             <Pressable style={s.checkoutBtn} onPress={() => navigation.navigate("Checkout")}>
               <Text style={s.checkoutBtnText}>Proceed to Checkout</Text>

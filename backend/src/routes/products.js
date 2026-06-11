@@ -25,7 +25,7 @@ router.get(
         store: { select: { id: true, name: true, location: true } },
         variants: true,
       },
-      orderBy: [{ trending: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ trending: "desc" }],
     });
 
     res.json({ data: { products }, error: null });
