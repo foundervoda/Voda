@@ -64,4 +64,34 @@ router.get(
   })
 );
 
+// PUT /api/auth/me — updates the current user's profile details
+router.put(
+  "/me",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { email, phone, password } = req.body;
+
+    if (email && email !== req.user.email) {
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) {
+        return res.status(409).json({ data: null, error: { message: "Email already taken", code: "EMAIL_TAKEN" } });
+      }
+    }
+
+    const dataToUpdate = {};
+    if (email) dataToUpdate.email = email;
+    if (phone) dataToUpdate.phone = phone;
+    if (password) {
+      dataToUpdate.password = await bcrypt.hash(password, SALT_ROUNDS);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: dataToUpdate,
+    });
+
+    res.json({ data: { user: toPublicUser(updatedUser) }, error: null });
+  })
+);
+
 module.exports = router;
