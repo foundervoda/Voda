@@ -26,6 +26,11 @@ app.use("/api/auth", authRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/products", productRoutes);
 // TODO: app.use("/api/store", storeRoutes);
+
+if (process.env.NODE_ENV !== "production") {
+  const devRoutes = require("./routes/dev");
+  app.use("/api/dev", devRoutes);
+}
 // TODO: app.use("/api/runner", runnerRoutes);
 // TODO: app.use("/api/rider", riderRoutes);
 

@@ -12,7 +12,7 @@ const SALT_ROUNDS = 10;
 const signToken = (user) =>
   jwt.sign({ sub: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
-const toPublicUser = ({ id, email, phone, role, createdAt }) => ({ id, email, phone, role, createdAt });
+const toPublicUser = ({ id, email, phone, role, storeId, createdAt }) => ({ id, email, phone, role, storeId, createdAt });
 
 // POST /api/auth/register — Body: email, password, phone, role
 router.post(

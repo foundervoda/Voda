@@ -52,4 +52,28 @@ router.get(
   })
 );
 
+// PUT /api/products/stock — bulk update variant stock levels
+// Body: { updates: [{ variantId, stock }] }
+router.put(
+  "/stock",
+  asyncHandler(async (req, res) => {
+    const { updates } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ data: null, error: { message: "updates array is required", code: "VALIDATION_ERROR" } });
+    }
+
+    const results = await Promise.all(
+      updates.map(({ variantId, stock }) =>
+        prisma.variant.update({
+          where: { id: variantId },
+          data: { stock: Math.max(0, parseInt(stock, 10) || 0) },
+        })
+      )
+    );
+
+    res.json({ data: { updated: results.length }, error: null });
+  })
+);
+
 module.exports = router;

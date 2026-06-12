@@ -5,9 +5,8 @@ import { getToken } from "./client";
 export const socket = io(import.meta.env.VITE_API_URL, { autoConnect: false });
 
 export function connectSocket() {
-  const token = getToken();
-  if (!token) return;
-
   socket.connect();
-  socket.emit("authenticate", token);
+
+  const token = getToken();
+  if (token) socket.emit("authenticate", token);
 }

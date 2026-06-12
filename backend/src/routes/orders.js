@@ -5,6 +5,30 @@ const { asyncHandler } = require("../middleware/errorHandler");
 
 const router = Router();
 
+// GET /api/orders?storeId=X — List orders for a store dashboard (STORE_STAFF)
+router.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const { storeId } = req.query;
+
+    const where = storeId
+      ? { items: { some: { product: { storeId } } } }
+      : {};
+
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        items: { include: { product: true, variant: true } },
+        customer: { select: { id: true, email: true, phone: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    res.json({ data: { orders }, error: null });
+  })
+);
+
 // POST /api/orders — Customer places an order from their cart
 router.post(
   "/",
