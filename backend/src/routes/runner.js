@@ -1,0 +1,154 @@
+const { Router } = require("express");
+const prisma = require("../lib/prisma");
+const { requireAuth, requireRole } = require("../middleware/auth");
+const { asyncHandler } = require("../middleware/errorHandler");
+
+const router = Router();
+
+const ORDER_INCLUDE = {
+  items: { include: { product: true, variant: true } },
+  customer: { select: { id: true, email: true, phone: true } },
+};
+
+// GET /api/runner/orders — all PENDING orders available to claim
+router.get(
+  "/orders",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const orders = await prisma.order.findMany({
+      where: { status: "PENDING" },
+      include: ORDER_INCLUDE,
+      orderBy: { createdAt: "asc" },
+    });
+    res.json({ data: { orders }, error: null });
+  })
+);
+
+// GET /api/runner/orders/mine — runner's active in-progress orders
+router.get(
+  "/orders/mine",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const orders = await prisma.order.findMany({
+      where: {
+        runnerId: req.user.id,
+        status: { in: ["RUNNER_ASSIGNED", "COLLECTED"] },
+      },
+      include: ORDER_INCLUDE,
+      orderBy: { createdAt: "desc" },
+    });
+    res.json({ data: { orders }, error: null });
+  })
+);
+
+// GET /api/runner/orders/history — runner's completed orders
+router.get(
+  "/orders/history",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const orders = await prisma.order.findMany({
+      where: {
+        runnerId: req.user.id,
+        status: {
+          in: ["HANDED_TO_RIDER", "OUT_FOR_DELIVERY", "ARRIVED", "DELIVERED", "RETURNING", "RETURNED", "REFUNDED"],
+        },
+      },
+      include: ORDER_INCLUDE,
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    res.json({ data: { orders }, error: null });
+  })
+);
+
+// POST /api/runner/orders/:id/assign — PENDING → RUNNER_ASSIGNED
+router.post(
+  "/orders/:id/assign",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+    if (existing.status !== "PENDING") {
+      return res.status(409).json({ data: null, error: { message: "Order is no longer available", code: "CONFLICT" } });
+    }
+
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status: "RUNNER_ASSIGNED", runnerId: req.user.id },
+      include: ORDER_INCLUDE,
+    });
+
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order });
+
+    res.json({ data: { order }, error: null });
+  })
+);
+
+// POST /api/runner/orders/:id/collect — RUNNER_ASSIGNED → COLLECTED
+router.post(
+  "/orders/:id/collect",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+    if (existing.runnerId !== req.user.id) {
+      return res.status(403).json({ data: null, error: { message: "Not your order", code: "FORBIDDEN" } });
+    }
+    if (existing.status !== "RUNNER_ASSIGNED") {
+      return res.status(409).json({ data: null, error: { message: "Order cannot be collected from its current status", code: "CONFLICT" } });
+    }
+
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status: "COLLECTED" },
+      include: ORDER_INCLUDE,
+    });
+
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order });
+
+    res.json({ data: { order }, error: null });
+  })
+);
+
+// POST /api/runner/orders/:id/handover — COLLECTED → HANDED_TO_RIDER
+router.post(
+  "/orders/:id/handover",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+    if (existing.runnerId !== req.user.id) {
+      return res.status(403).json({ data: null, error: { message: "Not your order", code: "FORBIDDEN" } });
+    }
+    if (existing.status !== "COLLECTED") {
+      return res.status(409).json({ data: null, error: { message: "Order cannot be handed over from its current status", code: "CONFLICT" } });
+    }
+
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status: "HANDED_TO_RIDER" },
+      include: ORDER_INCLUDE,
+    });
+
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order });
+
+    res.json({ data: { order }, error: null });
+  })
+);
+
+module.exports = router;

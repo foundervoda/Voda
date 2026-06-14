@@ -15,6 +15,7 @@ enum Role {
   RUNNER
   RIDER
   STORE_STAFF
+  ADMIN
 }
 
 enum OrderStatus {
@@ -89,6 +90,7 @@ model Order {
   status       OrderStatus @default(PENDING)
   deliveryAddr String
   etaMinutes   Int
+  deliveryOtp  String?   // 6-digit OTP generated on ARRIVED; cleared after verification
   tryTimerEnd  DateTime? // set when rider marks ARRIVED
 
   customerId   String

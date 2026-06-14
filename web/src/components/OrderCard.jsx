@@ -14,11 +14,14 @@ const STATUS_META = {
   REFUNDED:          { label: "Refunded",           bg: "bg-gray-100",     text: "text-gray-600" },
 };
 
-function timeAgo(dateStr) {
+function smartTime(dateStr) {
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 60)    return `${diff}s ago`;
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  const d = new Date(dateStr);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(!sameYear && { year: "numeric" }) });
 }
 
 export default function OrderCard({ order, onUpdated, onClick }) {
@@ -56,7 +59,7 @@ export default function OrderCard({ order, onUpdated, onClick }) {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-cream/60 text-xs">{timeAgo(order.createdAt)}</span>
+          <span className="text-cream/60 text-xs">{smartTime(order.createdAt)}</span>
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${meta.bg} ${meta.text}`}>
             {meta.label}
           </span>

@@ -11,9 +11,16 @@ router.get(
   asyncHandler(async (req, res) => {
     const { storeId } = req.query;
 
+    const { from, to } = req.query;
     const where = storeId
       ? { items: { some: { product: { storeId } } } }
       : {};
+
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(from);
+      if (to)   where.createdAt.lte = new Date(to);
+    }
 
     const orders = await prisma.order.findMany({
       where,
@@ -22,7 +29,8 @@ router.get(
         customer: { select: { id: true, email: true, phone: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      // no take limit when date-filtering (export); default cap of 100 for board view
+      ...(from || to ? {} : { take: 100 }),
     });
 
     res.json({ data: { orders }, error: null });
@@ -86,9 +94,10 @@ router.post(
       },
     });
 
-    // Emit new_order to the store's socket room so the dashboard picks it up
+    // Emit new_order to the store dashboard and to all connected runners
     const io = req.app.get("io");
     io.to(`store:${storeId}`).emit("new_order", { order });
+    io.to("runners").emit("new_order", { order });
 
     res.status(201).json({ data: { order }, error: null });
   })

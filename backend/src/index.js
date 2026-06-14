@@ -7,6 +7,8 @@ const { Server } = require("socket.io");
 const authRoutes = require("./routes/auth");
 const orderRoutes = require("./routes/orders");
 const productRoutes = require("./routes/products");
+const runnerRoutes = require("./routes/runner");
+const adminRoutes  = require("./routes/admin");
 const { errorHandler } = require("./middleware/errorHandler");
 const { registerSocketHandlers } = require("./sockets");
 
@@ -31,7 +33,8 @@ if (process.env.NODE_ENV !== "production") {
   const devRoutes = require("./routes/dev");
   app.use("/api/dev", devRoutes);
 }
-// TODO: app.use("/api/runner", runnerRoutes);
+app.use("/api/runner", runnerRoutes);
+app.use("/api/admin",  adminRoutes);
 // TODO: app.use("/api/rider", riderRoutes);
 
 app.use(errorHandler);

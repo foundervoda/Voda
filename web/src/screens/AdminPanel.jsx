@@ -1,0 +1,760 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  fetchAdminOverview,
+  fetchAdminOrders,
+  fetchAdminCustomers,
+  fetchAdminStores,
+} from "../api/admin";
+
+// ── shared helpers ────────────────────────────────────────────────────────────
+
+const STATUS_LABEL = {
+  PENDING:          "Pending",
+  RUNNER_ASSIGNED:  "Runner Assigned",
+  COLLECTED:        "Collected",
+  HANDED_TO_RIDER:  "With Rider",
+  OUT_FOR_DELIVERY: "Out for Delivery",
+  ARRIVED:          "Arrived",
+  DELIVERED:        "Delivered",
+  RETURNING:        "Returning",
+  RETURNED:         "Returned",
+  REFUNDED:         "Refunded",
+};
+
+const STATUS_STYLE = {
+  PENDING:          "bg-yellow text-navy",
+  RUNNER_ASSIGNED:  "bg-blue-100 text-blue-800",
+  COLLECTED:        "bg-indigo-100 text-indigo-800",
+  HANDED_TO_RIDER:  "bg-indigo-100 text-indigo-800",
+  OUT_FOR_DELIVERY: "bg-indigo-200 text-indigo-900",
+  ARRIVED:          "bg-emerald-100 text-emerald-800",
+  DELIVERED:        "bg-emerald-200 text-emerald-900",
+  RETURNING:        "bg-gray-100 text-gray-500",
+  RETURNED:         "bg-gray-100 text-gray-500",
+  REFUNDED:         "bg-gray-100 text-gray-500",
+};
+
+function StatusBadge({ status }) {
+  const cls = STATUS_STYLE[status] ?? "bg-gray-100 text-gray-500";
+  return (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>
+      {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+
+function Tooltip({ text, children }) {
+  const [visible, setVisible] = useState(false);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const ref = useRef(null);
+
+  function handleMouseEnter(e) {
+    const rect = ref.current?.getBoundingClientRect();
+    setPos({ x: rect ? rect.left : e.clientX, y: rect ? rect.bottom + 6 : e.clientY + 12 });
+    setVisible(true);
+  }
+
+  return (
+    <span
+      ref={ref}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={() => setVisible(false)}
+      className="cursor-default"
+    >
+      {children}
+      {visible && (
+        <div
+          className="fixed z-50 bg-navy text-cream text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-pre-wrap pointer-events-none"
+          style={{ top: pos.y, left: pos.x }}
+        >
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ── AdminOrderModal ───────────────────────────────────────────────────────────
+
+function AdminOrderModal({ order, onClose }) {
+  useEffect(() => {
+    const handler = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const store = order.items[0]?.product?.store;
+  const total = order.items.reduce(
+    (sum, i) => sum + (Number(i.product?.price ?? 0) * i.quantity), 0
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-navy/40 backdrop-blur-sm" onClick={onClose} />
+
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="bg-navy px-6 py-4 rounded-t-2xl flex items-center justify-between sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+            <span className="text-cream font-mono font-bold tracking-widest">
+              #{order.id.slice(-6).toUpperCase()}
+            </span>
+            <StatusBadge status={order.status} />
+          </div>
+          <button onClick={onClose} className="text-cream/50 hover:text-cream text-xl leading-none transition">✕</button>
+        </div>
+
+        <div className="p-6 space-y-6">
+
+          {/* Store */}
+          {store && (
+            <Section label="Store">
+              <Row label="Name">{store.name}</Row>
+            </Section>
+          )}
+
+          {/* Items */}
+          <Section label="Items">
+            <div className="space-y-2">
+              {order.items.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-4 bg-cream rounded-xl px-4 py-3">
+                  <div className="flex-1">
+                    <p className="font-semibold text-navy text-sm">{item.product?.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {[item.variant?.size, item.variant?.color].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-navy font-bold text-sm">×{item.quantity}</p>
+                    {item.product?.price && (
+                      <p className="text-xs text-gray-400">
+                        KES {(Number(item.product.price) * item.quantity).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {total > 0 && (
+              <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
+                <span className="text-sm font-semibold text-navy">Total</span>
+                <span className="text-sm font-bold text-navy">KES {total.toLocaleString()}</span>
+              </div>
+            )}
+          </Section>
+
+          {/* Delivery */}
+          <Section label="Delivery">
+            <Row label="Address">{order.deliveryAddr}</Row>
+            <Row label="ETA">{order.etaMinutes} min</Row>
+            <Row label="Placed">{fmt(order.createdAt)}</Row>
+          </Section>
+
+          {/* Customer */}
+          {order.customer && (
+            <Section label="Customer">
+              {order.customer.email && <Row label="Email">{order.customer.email}</Row>}
+              {order.customer.phone && <Row label="Phone">{order.customer.phone}</Row>}
+            </Section>
+          )}
+
+          {/* Runner */}
+          {order.runner && (
+            <Section label="Runner">
+              <Row label="Email">{order.runner.email}</Row>
+            </Section>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({ label, children }) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">{label}</h3>
+      <div className="bg-cream rounded-xl px-4 py-3 space-y-2 text-sm">{children}</div>
+    </div>
+  );
+}
+
+function Row({ label, children }) {
+  return (
+    <div className="flex gap-2">
+      <span className="text-gray-400 w-20 shrink-0">{label}</span>
+      <span className="text-navy font-medium">{children}</span>
+    </div>
+  );
+}
+
+function fmt(dateStr) {
+  return new Date(dateStr).toLocaleDateString("en-GB", {
+    day: "numeric", month: "short", year: "numeric",
+  });
+}
+
+function Spinner() {
+  return <div className="text-center py-20 text-gray-400 text-sm">Loading…</div>;
+}
+
+function Th({ children, className = "" }) {
+  return (
+    <th className={`text-left px-4 py-3 text-xs font-semibold text-navy/50 uppercase tracking-wide ${className}`}>
+      {children}
+    </th>
+  );
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────────
+
+const OVERVIEW_STATUSES = [
+  "PENDING", "RUNNER_ASSIGNED", "COLLECTED", "HANDED_TO_RIDER",
+  "OUT_FOR_DELIVERY", "ARRIVED", "DELIVERED", "RETURNING", "RETURNED", "REFUNDED",
+];
+
+function Overview() {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    fetchAdminOverview().then(setData).catch(console.error);
+  }, []);
+
+  if (!data) return <Spinner />;
+
+  const { totalOrders, totalCustomers, totalStores, statusCounts } = data;
+  const stats = [
+    { label: "Total Orders",    value: totalOrders },
+    { label: "Pending",         value: statusCounts.PENDING ?? 0 },
+    { label: "Total Customers", value: totalCustomers },
+    { label: "Stores",          value: totalStores },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((s) => (
+          <div key={s.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <p className="text-xs font-semibold text-navy/40 uppercase tracking-wide mb-1">{s.label}</p>
+            <p className="text-3xl font-bold text-navy">{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <p className="px-5 py-3 text-xs font-semibold text-navy/50 uppercase tracking-wide border-b border-gray-50">
+          Order Status Breakdown
+        </p>
+        <table className="w-full text-sm">
+          <tbody>
+            {OVERVIEW_STATUSES.filter((s) => (statusCounts[s] ?? 0) > 0).map((s) => (
+              <tr key={s} className="border-b border-gray-50 last:border-0">
+                <td className="px-5 py-3"><StatusBadge status={s} /></td>
+                <td className="px-4 py-3 text-right font-bold text-navy pr-5">{statusCounts[s]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Orders ────────────────────────────────────────────────────────────────────
+
+export function Orders({ defaultCustomerId, defaultStoreId, onSelectCustomer }) {
+  const [orders, setOrders]         = useState(null);
+  const [stores, setStores]         = useState([]);
+  const [storeId, setStoreId]       = useState(defaultStoreId ?? "");
+  const [customerId, setCustomerId] = useState(defaultCustomerId ?? "");
+  const [status, setStatus]         = useState("");
+  const [search, setSearch]         = useState("");
+  const [selected, setSelected]     = useState(null);
+
+  useEffect(() => {
+    fetchAdminStores().then(setStores).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    setOrders(null);
+    fetchAdminOrders({ storeId: storeId || undefined, customerId: customerId || undefined, status: status || undefined })
+      .then(setOrders)
+      .catch(console.error);
+  }, [storeId, customerId, status]);
+
+  const visible = (orders ?? []).filter((o) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      o.customer?.email?.toLowerCase().includes(q) ||
+      o.deliveryAddr?.toLowerCase().includes(q) ||
+      o.id.includes(q)
+    );
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2">
+        <select
+          value={storeId}
+          onChange={(e) => setStoreId(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
+        >
+          <option value="">All Stores</option>
+          {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
+        >
+          <option value="">All Statuses</option>
+          {OVERVIEW_STATUSES.map((s) => (
+            <option key={s} value={s}>{STATUS_LABEL[s]}</option>
+          ))}
+        </select>
+
+        <input
+          type="text"
+          placeholder="Search email / address…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy placeholder:text-gray-300 focus:outline-none focus:border-navy flex-1 min-w-[200px]"
+        />
+
+        {(storeId || customerId || status || search) && (
+          <button
+            onClick={() => { setStoreId(""); setCustomerId(""); setStatus(""); setSearch(""); }}
+            className="px-3 py-2 text-sm text-gray-400 hover:text-navy border border-gray-200 rounded-xl transition"
+          >
+            Clear
+          </button>
+        )}
+
+        <span className="ml-auto self-center text-sm text-gray-400">
+          {orders ? `${visible.length} order${visible.length !== 1 ? "s" : ""}` : ""}
+        </span>
+      </div>
+
+      {/* Table */}
+      {selected && <AdminOrderModal order={selected} onClose={() => setSelected(null)} />}
+
+      {!orders ? <Spinner /> : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-cream border-b border-gray-100">
+              <tr>
+                <Th>Order</Th>
+                <Th>Customer</Th>
+                <Th>Store</Th>
+                <Th>Items</Th>
+                <Th>Address</Th>
+                <Th>Date</Th>
+                <Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 && (
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No orders match these filters</td></tr>
+              )}
+              {visible.map((o) => {
+                const store = o.items[0]?.product?.store;
+                const summary = o.items.map((i) => `${i.product?.name} ×${i.quantity}`).join(", ");
+                const fullItems = o.items
+                  .map((i) => `${i.product?.name} ×${i.quantity} (${[i.variant?.size, i.variant?.color].filter(Boolean).join(", ")})`)
+                  .join("\n");
+                return (
+                  <tr
+                    key={o.id}
+                    className="border-b border-gray-50 hover:bg-cream/40 cursor-pointer transition"
+                    onClick={() => setSelected(o)}
+                  >
+                    <td className="px-4 py-3 font-mono font-bold text-navy">#{o.id.slice(-6).toUpperCase()}</td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="text-navy hover:underline text-left"
+                        onClick={() => onSelectCustomer?.(o.customer?.id)}
+                      >
+                        {o.customer?.email}
+                      </button>
+                      <div className="text-xs text-gray-400">{o.customer?.phone}</div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">{store?.name ?? "—"}</td>
+                    <td className="px-4 py-3 max-w-[180px]">
+                      <Tooltip text={fullItems}>
+                        <span className="text-gray-600 text-sm block truncate">{summary}</span>
+                      </Tooltip>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 max-w-[140px] truncate">{o.deliveryAddr}</td>
+                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap">{fmt(o.createdAt)}</td>
+                    <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Customers ─────────────────────────────────────────────────────────────────
+
+function Customers({ onFilterOrders }) {
+  const [customers, setCustomers] = useState(null);
+  const [search, setSearch]       = useState("");
+
+  useEffect(() => {
+    fetchAdminCustomers().then(setCustomers).catch(console.error);
+  }, []);
+
+  const visible = (customers ?? []).filter((c) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return c.email.toLowerCase().includes(q) || c.phone.includes(q);
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 items-center">
+        <input
+          type="text"
+          placeholder="Search by email or phone…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy placeholder:text-gray-300 focus:outline-none focus:border-navy flex-1 max-w-sm"
+        />
+        <span className="text-sm text-gray-400 ml-auto">
+          {customers ? `${visible.length} customer${visible.length !== 1 ? "s" : ""}` : ""}
+        </span>
+      </div>
+
+      {!customers ? <Spinner /> : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-cream border-b border-gray-100">
+              <tr>
+                <Th>Email</Th>
+                <Th>Phone</Th>
+                <Th>Orders</Th>
+                <Th>Joined</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 && (
+                <tr><td colSpan={5} className="text-center py-12 text-gray-400">No customers found</td></tr>
+              )}
+              {visible.map((c) => (
+                <tr key={c.id} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                  <td className="px-4 py-3 font-medium text-navy">{c.email}</td>
+                  <td className="px-4 py-3 text-gray-500">{c.phone}</td>
+                  <td className="px-4 py-3">
+                    <span className="font-bold text-navy">{c._count.customerOrders}</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-400">{fmt(c.createdAt)}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => onFilterOrders(c.id)}
+                      className="text-xs font-semibold text-navy hover:underline"
+                    >
+                      View orders →
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── CSV export helpers ────────────────────────────────────────────────────────
+
+function escapeCSV(v) {
+  const s = String(v ?? "");
+  return s.includes(",") || s.includes('"') || s.includes("\n")
+    ? `"${s.replace(/"/g, '""')}"`
+    : s;
+}
+
+function downloadCSV(rows, filename) {
+  const csv = rows.map((r) => r.map(escapeCSV).join(",")).join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function todayRange() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end   = new Date(); end.setHours(23, 59, 59, 999);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+function lastNDaysRange(n) {
+  const end   = new Date(); end.setHours(23, 59, 59, 999);
+  const start = new Date(); start.setDate(start.getDate() - n); start.setHours(0, 0, 0, 0);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+function lastMonthRange() {
+  const now   = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const end   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+// ── ExportModal ───────────────────────────────────────────────────────────────
+
+function ExportModal({ store, onClose }) {
+  const [from, setFrom]       = useState("");
+  const [to, setTo]           = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
+
+  useEffect(() => {
+    const handler = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  function applyPreset(range) {
+    const f = new Date(range.from);
+    const t = new Date(range.to);
+    setFrom(f.toISOString().slice(0, 10));
+    setTo(t.toISOString().slice(0, 10));
+  }
+
+  async function doExport() {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = { storeId: store.id };
+      if (from) params.from = new Date(from).toISOString();
+      if (to)   params.to   = new Date(to + "T23:59:59").toISOString();
+
+      const orders = await fetchAdminOrders(params);
+
+      const header = ["Order ID", "Date", "Customer Email", "Customer Phone", "Items", "Address", "Status", "Runner"];
+      const rows = orders.map((o) => [
+        o.id.slice(-6).toUpperCase(),
+        new Date(o.createdAt).toLocaleString("en-GB"),
+        o.customer?.email ?? "",
+        o.customer?.phone ?? "",
+        o.items.map((i) => `${i.product?.name} x${i.quantity}`).join("; "),
+        o.deliveryAddr,
+        STATUS_LABEL[o.status] ?? o.status,
+        o.runner?.email ?? "",
+      ]);
+
+      const label = from && to ? `${from}_to_${to}` : from ? `from_${from}` : to ? `to_${to}` : "all";
+      downloadCSV([header, ...rows], `${store.name.replace(/\s+/g, "_")}_orders_${label}.csv`);
+      onClose();
+    } catch (e) {
+      setError("Failed to fetch orders. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const PRESETS = [
+    { label: "Today",       fn: () => applyPreset(todayRange()) },
+    { label: "Last 7 days", fn: () => applyPreset(lastNDaysRange(7)) },
+    { label: "Last month",  fn: () => applyPreset(lastMonthRange()) },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-navy/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        {/* Header */}
+        <div className="bg-navy px-6 py-4 rounded-t-2xl flex items-center justify-between">
+          <div>
+            <p className="text-cream font-bold">Export Orders</p>
+            <p className="text-cream/50 text-xs mt-0.5">{store.name}</p>
+          </div>
+          <button onClick={onClose} className="text-cream/50 hover:text-cream text-xl leading-none">✕</button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Presets */}
+          <div>
+            <p className="text-xs font-semibold text-navy/50 uppercase tracking-wide mb-2">Quick select</p>
+            <div className="flex gap-2">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={p.fn}
+                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-navy hover:bg-cream hover:border-navy transition"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom range */}
+          <div>
+            <p className="text-xs font-semibold text-navy/50 uppercase tracking-wide mb-2">Custom range</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
+              />
+              <span className="text-gray-400 text-sm">to</span>
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
+              />
+            </div>
+            {(!from && !to) && (
+              <p className="text-xs text-gray-400 mt-1.5">Leave blank to export all orders</p>
+            )}
+          </div>
+
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+
+          <button
+            onClick={doExport}
+            disabled={loading}
+            className="w-full bg-navy text-yellow font-bold py-3 rounded-xl text-sm hover:brightness-110 transition disabled:opacity-50"
+          >
+            {loading ? "Fetching orders…" : "Download CSV"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Stores ────────────────────────────────────────────────────────────────────
+
+function Stores({ onFilterOrders }) {
+  const [stores, setStores]       = useState(null);
+  const [exportStore, setExport]  = useState(null);
+
+  useEffect(() => {
+    fetchAdminStores().then(setStores).catch(console.error);
+  }, []);
+
+  return (
+    <div>
+      {exportStore && <ExportModal store={exportStore} onClose={() => setExport(null)} />}
+
+      {!stores ? <Spinner /> : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-cream border-b border-gray-100">
+              <tr>
+                <Th>Store Name</Th>
+                <Th>Location</Th>
+                <Th>Products</Th>
+                <Th>Orders</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {stores.length === 0 && (
+                <tr><td colSpan={5} className="text-center py-12 text-gray-400">No stores yet</td></tr>
+              )}
+              {stores.map((s) => (
+                <tr key={s.id} className="border-b border-gray-50 hover:bg-cream/40 transition last:border-0">
+                  <td className="px-4 py-3 font-semibold text-navy">{s.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{s.location}</td>
+                  <td className="px-4 py-3 font-bold text-navy">{s._count.products}</td>
+                  <td className="px-4 py-3 font-bold text-navy">{s.orderCount}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => onFilterOrders(s.id)}
+                        className="text-xs font-semibold text-navy hover:underline"
+                      >
+                        View orders →
+                      </button>
+                      <button
+                        onClick={() => setExport(s)}
+                        className="text-xs font-semibold text-navy bg-yellow px-2.5 py-1 rounded-lg hover:brightness-95 transition"
+                      >
+                        Export CSV
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── AdminPanel shell ──────────────────────────────────────────────────────────
+
+const TABS = [
+  { key: "overview",   label: "Overview" },
+  { key: "orders",     label: "Orders" },
+  { key: "customers",  label: "Customers" },
+  { key: "stores",     label: "Stores" },
+];
+
+export default function AdminPanel() {
+  const [tab, setTab] = useState("overview");
+  // Cross-tab drill-down: Customers → Orders by customer, Stores → Orders by store
+  const [ordersFilter, setOrdersFilter] = useState({});
+
+  function drillToOrders(filter) {
+    setOrdersFilter(filter);
+    setTab("orders");
+  }
+
+  return (
+    <div className="p-5 max-w-6xl mx-auto">
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm mb-6 w-fit">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition
+              ${tab === t.key ? "bg-navy text-cream" : "text-gray-500 hover:text-navy hover:bg-gray-50"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview"  && <Overview />}
+      {tab === "orders"    && (
+        <Orders
+          key={JSON.stringify(ordersFilter)}
+          defaultCustomerId={ordersFilter.customerId}
+          defaultStoreId={ordersFilter.storeId}
+          onSelectCustomer={(id) => drillToOrders({ customerId: id })}
+        />
+      )}
+      {tab === "customers" && (
+        <Customers onFilterOrders={(customerId) => drillToOrders({ customerId })} />
+      )}
+      {tab === "stores"    && (
+        <Stores onFilterOrders={(storeId) => drillToOrders({ storeId })} />
+      )}
+    </div>
+  );
+}

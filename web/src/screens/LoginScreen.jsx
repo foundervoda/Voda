@@ -13,8 +13,12 @@ export default function LoginScreen({ onLogin }) {
     setLoading(true);
     try {
       const user = await login(email, password);
+      if (user.role === "ADMIN") {
+        onLogin(user);
+        return;
+      }
       if (user.role !== "STORE_STAFF") {
-        setError("This dashboard is for store staff only.");
+        setError("This dashboard is for store staff and admins only.");
         return;
       }
       if (!user.storeId) {

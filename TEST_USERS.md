@@ -8,6 +8,7 @@ All accounts use the same password: **`voda1234`**
 | Store Staff | `store@voda.test` | `voda1234` | Logs into the store web dashboard |
 | Runner | `runner@voda.test` | `voda1234` | Collects orders from store |
 | Rider | `rider@voda.test` | `voda1234` | Delivers orders to customer |
+| Admin | `admin@voda.test` | `voda1234` | Full read access via web admin panel |
 
 ## Quick login URLs
 

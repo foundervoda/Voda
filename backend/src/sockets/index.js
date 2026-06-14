@@ -18,6 +18,16 @@ const registerSocketHandlers = (io) => {
           const user = await prisma.user.findUnique({ where: { id: payload.sub } });
           if (user?.storeId) socket.join(`store:${user.storeId}`);
         }
+
+        if (payload.role === "RUNNER") {
+          socket.join("runners");
+          // Rejoin active order rooms so order_update events arrive after reconnect
+          const activeOrders = await prisma.order.findMany({
+            where: { runnerId: payload.sub, status: { in: ["RUNNER_ASSIGNED", "COLLECTED"] } },
+            select: { id: true },
+          });
+          for (const o of activeOrders) socket.join(`order:${o.id}`);
+        }
       } catch (err) {
         socket.emit("auth_error", { message: "Invalid token" });
       }

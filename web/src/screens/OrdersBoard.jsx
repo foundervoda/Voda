@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { socket } from "../api/socket";
-import { fetchStoreOrders } from "../api/orders";
+import { fetchStoreOrders, fetchStoreOrdersExport } from "../api/orders";
 import OrderCard from "../components/OrderCard";
 import OrderModal from "../components/OrderModal";
 
@@ -24,11 +24,14 @@ const STATUS_META = {
   REFUNDED:         { label: "Refunded",          bg: "bg-gray-100",    text: "text-gray-500" },
 };
 
-function timeAgo(dateStr) {
+function smartTime(dateStr) {
   const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 60)    return `${diff}s ago`;
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  const d = new Date(dateStr);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(!sameYear && { year: "numeric" }) });
 }
 
 const ACTIVE_STATUSES = new Set(["RUNNER_ASSIGNED", "COLLECTED", "HANDED_TO_RIDER", "OUT_FOR_DELIVERY", "ARRIVED"]);
@@ -60,13 +63,159 @@ function OrderRow({ order, onClick }) {
       </td>
       <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{summary}</td>
       <td className="px-4 py-3 text-sm text-gray-500 truncate max-w-[140px]">{order.deliveryAddr}</td>
-      <td className="px-4 py-3 text-sm text-gray-400">{timeAgo(order.createdAt)}</td>
+      <td className="px-4 py-3 text-sm text-gray-400">{smartTime(order.createdAt)}</td>
       <td className="px-4 py-3">
         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${meta.bg} ${meta.text}`}>
           {meta.label}
         </span>
       </td>
     </tr>
+  );
+}
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+
+function escapeCSV(v) {
+  const s = String(v ?? "");
+  return s.includes(",") || s.includes('"') || s.includes("\n")
+    ? `"${s.replace(/"/g, '""')}"`
+    : s;
+}
+
+function downloadCSV(rows, filename) {
+  const csv = rows.map((r) => r.map(escapeCSV).join(",")).join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function todayRange() {
+  const s = new Date(); s.setHours(0, 0, 0, 0);
+  const e = new Date(); e.setHours(23, 59, 59, 999);
+  return { from: s.toISOString().slice(0, 10), to: e.toISOString().slice(0, 10) };
+}
+function last7Range() {
+  const e = new Date(); e.setHours(23, 59, 59, 999);
+  const s = new Date(); s.setDate(s.getDate() - 7); s.setHours(0, 0, 0, 0);
+  return { from: s.toISOString().slice(0, 10), to: e.toISOString().slice(0, 10) };
+}
+function lastMonthRange() {
+  const now = new Date();
+  const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const e = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+  return { from: s.toISOString().slice(0, 10), to: e.toISOString().slice(0, 10) };
+}
+
+function ExportModal({ storeId, onClose }) {
+  const [from, setFrom]       = useState("");
+  const [to, setTo]           = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState(null);
+
+  useEffect(() => {
+    const handler = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  async function doExport() {
+    setLoading(true);
+    setError(null);
+    try {
+      const fromISO = from ? new Date(from).toISOString() : undefined;
+      const toISO   = to   ? new Date(to + "T23:59:59").toISOString() : undefined;
+      const orders  = await fetchStoreOrdersExport(storeId, fromISO, toISO);
+
+      const header = ["Order ID", "Date", "Customer Email", "Customer Phone", "Items", "Address", "Status"];
+      const rows = orders.map((o) => [
+        o.id.slice(-6).toUpperCase(),
+        new Date(o.createdAt).toLocaleString("en-GB"),
+        o.customer?.email ?? "",
+        o.customer?.phone ?? "",
+        o.items.map((i) => `${i.product?.name} x${i.quantity}`).join("; "),
+        o.deliveryAddr,
+        STATUS_META[o.status]?.label ?? o.status,
+      ]);
+
+      const label = from && to ? `${from}_to_${to}` : from ? `from_${from}` : to ? `to_${to}` : "all";
+      downloadCSV([header, ...rows], `orders_${label}.csv`);
+      onClose();
+    } catch {
+      setError("Failed to fetch orders. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const PRESETS = [
+    { label: "Today",       fn: () => { const r = todayRange();      setFrom(r.from); setTo(r.to); } },
+    { label: "Last 7 days", fn: () => { const r = last7Range();      setFrom(r.from); setTo(r.to); } },
+    { label: "Last month",  fn: () => { const r = lastMonthRange();  setFrom(r.from); setTo(r.to); } },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-navy/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="bg-navy px-6 py-4 rounded-t-2xl flex items-center justify-between">
+          <p className="text-cream font-bold">Export Orders</p>
+          <button onClick={onClose} className="text-cream/50 hover:text-cream text-xl leading-none">✕</button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div>
+            <p className="text-xs font-semibold text-navy/50 uppercase tracking-wide mb-2">Quick select</p>
+            <div className="flex gap-2">
+              {PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={p.fn}
+                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-navy hover:bg-cream hover:border-navy transition"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold text-navy/50 uppercase tracking-wide mb-2">Custom range</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
+              />
+              <span className="text-gray-400 text-sm">to</span>
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
+              />
+            </div>
+            {!from && !to && (
+              <p className="text-xs text-gray-400 mt-1.5">Leave blank to export all orders</p>
+            )}
+          </div>
+
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+
+          <button
+            onClick={doExport}
+            disabled={loading}
+            className="w-full bg-navy text-yellow font-bold py-3 rounded-xl text-sm hover:brightness-110 transition disabled:opacity-50"
+          >
+            {loading ? "Fetching orders…" : "Download CSV"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -91,6 +240,7 @@ export default function OrdersBoard({ storeId }) {
   const [error, setError]            = useState(null);
   const [selectedOrder, setSelected] = useState(null);
   const [view, setView]              = useState("grid"); // "grid" | "list"
+  const [showExport, setShowExport]  = useState(false);
   const audioRef                     = useRef(null);
 
   useEffect(() => {
@@ -133,6 +283,7 @@ export default function OrdersBoard({ storeId }) {
   return (
     <div className="p-5 max-w-6xl mx-auto">
       <audio ref={audioRef} src="/chime.mp3" preload="none" />
+      {showExport && <ExportModal storeId={storeId} onClose={() => setShowExport(false)} />}
 
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-5 gap-3">
@@ -158,6 +309,13 @@ export default function OrdersBoard({ storeId }) {
 
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-400">{visible.length} order{visible.length !== 1 ? "s" : ""}</span>
+
+          <button
+            onClick={() => setShowExport(true)}
+            className="px-3 py-1.5 text-sm font-semibold bg-yellow text-navy rounded-lg hover:brightness-95 transition"
+          >
+            Export CSV
+          </button>
 
           {/* View toggle */}
           <div className="flex gap-0.5 bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
