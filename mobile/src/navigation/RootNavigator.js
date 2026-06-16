@@ -9,6 +9,7 @@ import CartScreen from "../screens/customer/CartScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmScreen from "../screens/customer/OrderConfirmScreen";
 import RunnerNavigator from "./RunnerNavigator";
+import RiderNavigator from "./RiderNavigator";
 import { SocketProvider } from "../api/SocketContext";
 
 const Stack = createNativeStackNavigator();
@@ -33,6 +34,8 @@ export default function RootNavigator() {
     <SocketProvider>
       {user.role === "RUNNER" ? (
         <RunnerNavigator />
+      ) : user.role === "RIDER" ? (
+        <RiderNavigator />
       ) : (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="CustomerTabs" component={CustomerTabs} />

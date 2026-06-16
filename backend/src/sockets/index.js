@@ -28,6 +28,17 @@ const registerSocketHandlers = (io) => {
           });
           for (const o of activeOrders) socket.join(`order:${o.id}`);
         }
+
+        if (payload.role === "RIDER") {
+          const activeOrders = await prisma.order.findMany({
+            where: {
+              riderId: payload.sub,
+              status: { in: ["OUT_FOR_DELIVERY", "ARRIVED", "DELIVERED", "RETURNING"] },
+            },
+            select: { id: true },
+          });
+          for (const o of activeOrders) socket.join(`order:${o.id}`);
+        }
       } catch (err) {
         socket.emit("auth_error", { message: "Invalid token" });
       }
