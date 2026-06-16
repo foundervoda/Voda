@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchStoreProducts, bulkUpdateStock } from "../api/products";
+import { requestTnbChange } from "../api/tnb";
 
 function parseCSV(text) {
   const lines = text.trim().split("\n").map((l) => l.trim()).filter(Boolean);
@@ -24,6 +25,9 @@ export default function StockView({ storeId }) {
   const [preview, setPreview]   = useState(null); // CSV import preview
   const [saving, setSaving]     = useState(false);
   const [toast, setToast]       = useState(null);
+  const [tnbModal, setTnbModal] = useState(null); // { product }
+  const [tnbNote, setTnbNote]   = useState("");
+  const [tnbSaving, setTnbSaving] = useState(false);
   const fileRef                 = useRef(null);
 
   useEffect(() => {
@@ -104,6 +108,31 @@ export default function StockView({ storeId }) {
       e.target.value = "";
     };
     reader.readAsText(file);
+  }
+
+  async function handleTnbRequest() {
+    if (!tnbModal) return;
+    const { product } = tnbModal;
+    const requestedEligible = !product.tryAndBuyEligible;
+    setTnbSaving(true);
+    try {
+      await requestTnbChange(product.id, requestedEligible, tnbNote);
+      // Mark pending locally so button flips immediately
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === product.id
+            ? { ...p, tnbRequests: [{ id: "pending", requestedEligible }] }
+            : p
+        )
+      );
+      showToast(`T&B request submitted for ${product.name}`);
+      setTnbModal(null);
+      setTnbNote("");
+    } catch (err) {
+      showToast(err?.response?.data?.error?.message ?? "Request failed");
+    } finally {
+      setTnbSaving(false);
+    }
   }
 
   async function handleConfirmImport() {
@@ -193,6 +222,7 @@ export default function StockView({ storeId }) {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Color</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Stock</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Status</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Try &amp; Buy</th>
               </tr>
             </thead>
             <tbody>
@@ -212,6 +242,35 @@ export default function StockView({ storeId }) {
                           {level.label}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {vi === 0 ? (() => {
+                          const pendingReq = p.tnbRequests?.[0];
+                          if (pendingReq) {
+                            return (
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow text-navy">
+                                Pending ({pendingReq.requestedEligible ? "Enable" : "Remove"})
+                              </span>
+                            );
+                          }
+                          return (
+                            <div className="flex items-center justify-center gap-2">
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                p.tryAndBuyEligible
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-gray-100 text-gray-400"
+                              }`}>
+                                {p.tryAndBuyEligible ? "Eligible" : "Not eligible"}
+                              </span>
+                              <button
+                                onClick={() => { setTnbModal({ product: p }); setTnbNote(""); }}
+                                className="text-xs text-navy/50 hover:text-navy underline underline-offset-2 transition"
+                              >
+                                {p.tryAndBuyEligible ? "Remove" : "Request"}
+                              </button>
+                            </div>
+                          );
+                        })() : null}
+                      </td>
                     </tr>
                   );
                 })
@@ -221,6 +280,56 @@ export default function StockView({ storeId }) {
           {filtered.length === 0 && (
             <p className="text-center py-12 text-gray-400">No products found</p>
           )}
+        </div>
+      )}
+
+      {/* T&B request modal */}
+      {tnbModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-navy/40 backdrop-blur-sm" onClick={() => setTnbModal(null)} />
+          <div className="relative bg-cream rounded-2xl shadow-2xl w-full max-w-sm p-8">
+            <div className="w-12 h-12 rounded-full bg-navy flex items-center justify-center mx-auto mb-4">
+              <svg viewBox="0 0 24 24" className="w-6 h-6 text-yellow" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+              </svg>
+            </div>
+            <h2 className="text-base font-bold text-navy text-center mb-1">
+              {tnbModal.product.tryAndBuyEligible ? "Request T&B Removal" : "Request T&B Eligibility"}
+            </h2>
+            <p className="text-sm text-navy/50 text-center mb-5">
+              <span className="font-semibold text-navy">{tnbModal.product.name}</span>
+              {" — "}
+              {tnbModal.product.tryAndBuyEligible
+                ? "Request to remove this product from T&B."
+                : "Request to mark this product as Try & Buy eligible."}
+              <br />
+              <span className="text-xs">An admin will review and approve or reject this request.</span>
+            </p>
+            <label className="block text-xs font-semibold text-navy mb-1.5">Note (optional)</label>
+            <textarea
+              value={tnbNote}
+              onChange={(e) => setTnbNote(e.target.value)}
+              placeholder="Add context for the admin…"
+              rows={3}
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-navy
+                         placeholder:text-gray-300 focus:outline-none focus:border-navy resize-none transition mb-5"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => setTnbModal(null)}
+                className="flex-1 py-2.5 text-sm font-semibold text-navy border border-navy/20 rounded-xl hover:bg-white transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleTnbRequest}
+                disabled={tnbSaving}
+                className="flex-1 py-2.5 text-sm font-semibold text-navy bg-yellow hover:brightness-95 rounded-xl transition disabled:opacity-50"
+              >
+                {tnbSaving ? "Submitting…" : "Submit Request"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -24,6 +24,12 @@ router.get(
       include: {
         store: { select: { id: true, name: true, location: true } },
         variants: true,
+        ...(storeId && {
+          tnbRequests: {
+            where: { status: "PENDING" },
+            select: { id: true, requestedEligible: true },
+          },
+        }),
       },
       orderBy: [{ trending: "desc" }],
     });

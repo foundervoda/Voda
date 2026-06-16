@@ -5,6 +5,12 @@ import {
   fetchAdminCustomers,
   fetchAdminStores,
 } from "../api/admin";
+import {
+  fetchTnbRequests, resolveTnbRequest,
+  fetchTnbProducts, setProductTnb,
+  fetchTnbCategories, setCategoryTnb,
+  fetchTnbStoreOverrides, setStoreTnbOverride,
+} from "../api/tnb";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -705,6 +711,546 @@ function Stores({ onFilterOrders }) {
   );
 }
 
+// ── T&B shared ────────────────────────────────────────────────────────────────
+
+function Toggle({ checked, onChange, disabled }) {
+  return (
+    <button
+      onClick={() => !disabled && onChange(!checked)}
+      disabled={disabled}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus:outline-none
+        ${checked ? "bg-emerald-500" : "bg-gray-200"}
+        ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-80"}`}
+    >
+      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform
+        ${checked ? "translate-x-4" : "translate-x-0.5"}`} />
+    </button>
+  );
+}
+
+// ── T&B Products ──────────────────────────────────────────────────────────────
+
+function TnbProducts() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [search, setSearch]     = useState("");
+  const [toggling, setToggling] = useState(null);
+
+  useEffect(() => {
+    fetchTnbProducts().then(setProducts).finally(() => setLoading(false));
+  }, []);
+
+  async function handleToggle(product) {
+    setToggling(product.id);
+    try {
+      await setProductTnb(product.id, !product.tryAndBuyEligible);
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === product.id ? { ...p, tryAndBuyEligible: !p.tryAndBuyEligible } : p
+        )
+      );
+    } finally {
+      setToggling(null);
+    }
+  }
+
+  const filtered = products.filter(
+    (p) =>
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.category.toLowerCase().includes(search.toLowerCase()) ||
+      p.store.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by product, category or store…"
+          className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm text-navy
+                     placeholder:text-gray-300 focus:outline-none focus:border-navy transition"
+        />
+        <span className="text-xs text-gray-400 shrink-0">{filtered.length} products</span>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">Loading…</div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-cream border-b border-gray-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Product</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Category</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Store</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Product Flag</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Store Override</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Effective</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Toggle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p) => {
+                const effective = p.store.tnbOverride !== null && p.store.tnbOverride !== undefined
+                  ? p.store.tnbOverride
+                  : p.tryAndBuyEligible;
+                return (
+                  <tr key={p.id} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                    <td className="px-5 py-3 font-medium text-navy">{p.name}</td>
+                    <td className="px-4 py-3 text-gray-500">{p.category}</td>
+                    <td className="px-4 py-3 text-gray-500">{p.store.name}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        p.tryAndBuyEligible ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"
+                      }`}>
+                        {p.tryAndBuyEligible ? "Yes" : "No"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {p.store.tnbOverride == null ? (
+                        <span className="text-xs text-gray-300">—</span>
+                      ) : (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          p.store.tnbOverride ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-600"
+                        }`}>
+                          {p.store.tnbOverride ? "Force on" : "Block"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        effective ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"
+                      }`}>
+                        {effective ? "Eligible" : "Not eligible"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Toggle
+                        checked={p.tryAndBuyEligible}
+                        onChange={() => handleToggle(p)}
+                        disabled={toggling !== null}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {filtered.length === 0 && <p className="text-center py-12 text-gray-400">No products found</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── T&B Categories ────────────────────────────────────────────────────────────
+
+function TnbCategories() {
+  const [categories, setCategories] = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [toggling, setToggling]     = useState(null);
+
+  useEffect(() => {
+    fetchTnbCategories().then(setCategories).finally(() => setLoading(false));
+  }, []);
+
+  async function handleToggle(cat) {
+    const newEligible = cat.defaultEligible !== true;
+    setToggling(cat.category);
+    try {
+      await setCategoryTnb(cat.category, newEligible);
+      setCategories((prev) =>
+        prev.map((c) =>
+          c.category === cat.category
+            ? { ...c, defaultEligible: newEligible, eligibleCount: newEligible ? c.total : 0 }
+            : c
+        )
+      );
+    } finally {
+      setToggling(null);
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 mb-4">
+        Toggling a category sets the default and bulk-updates all products in that category.
+      </p>
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">Loading…</div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-cream border-b border-gray-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Category</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Products</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">T&amp;B Eligible</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Default</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Bulk Toggle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {categories.map((cat) => (
+                <tr key={cat.category} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                  <td className="px-5 py-3 font-medium text-navy">{cat.category}</td>
+                  <td className="px-4 py-3 text-center text-gray-500">{cat.total}</td>
+                  <td className="px-4 py-3 text-center text-gray-500">
+                    {cat.eligibleCount} / {cat.total}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {cat.defaultEligible === null ? (
+                      <span className="text-xs text-gray-300">Not set</span>
+                    ) : (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        cat.defaultEligible ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-400"
+                      }`}>
+                        {cat.defaultEligible ? "All eligible" : "None"}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <Toggle
+                      checked={cat.defaultEligible === true}
+                      onChange={() => handleToggle(cat)}
+                      disabled={toggling !== null}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {categories.length === 0 && <p className="text-center py-12 text-gray-400">No categories found</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── T&B Stores ────────────────────────────────────────────────────────────────
+
+const OVERRIDE_OPTS = [
+  {
+    value: false,
+    label: "Block all",
+    desc: "All products in this store will be T&B ineligible, regardless of their individual flags.",
+    activeCls: "bg-navy text-cream border-navy",
+    inactiveCls: "border-gray-200 text-navy/30 hover:border-navy/40 hover:text-navy",
+  },
+  {
+    value: null,
+    label: "No override",
+    desc: "Remove the store override. Each product's own T&B flag will apply.",
+    activeCls: "bg-cream text-navy border-navy",
+    inactiveCls: "border-gray-200 text-navy/30 hover:border-navy/40 hover:text-navy",
+  },
+  {
+    value: true,
+    label: "Force all",
+    desc: "All products in this store will be T&B eligible, regardless of their individual flags.",
+    activeCls: "bg-yellow text-navy border-yellow",
+    inactiveCls: "border-gray-200 text-navy/30 hover:border-yellow hover:text-navy",
+  },
+];
+
+function TnbStores() {
+  const [stores, setStores]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [setting, setSetting] = useState(null);
+  const [confirm, setConfirm] = useState(null); // { store, opt }
+
+  useEffect(() => {
+    fetchTnbStoreOverrides().then(setStores).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!confirm) return;
+    const handler = (e) => e.key === "Escape" && setConfirm(null);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [confirm]);
+
+  async function handleConfirm() {
+    const { store, opt } = confirm;
+    setConfirm(null);
+    setSetting(store.id);
+    try {
+      const updated = await setStoreTnbOverride(store.id, opt.value);
+      setStores((prev) =>
+        prev.map((s) => (s.id === store.id ? { ...s, tnbOverride: updated.tnbOverride } : s))
+      );
+    } finally {
+      setSetting(null);
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 mb-4">
+        Store overrides take highest precedence — they supersede both product flags and category defaults.
+      </p>
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">Loading…</div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-cream border-b border-gray-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Store</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Location</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Products</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Eligible</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Override</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stores.map((store) => (
+                <tr key={store.id} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                  <td className="px-5 py-3 font-medium text-navy">{store.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{store.location}</td>
+                  <td className="px-4 py-3 text-center text-gray-500">{store.totalProducts}</td>
+                  <td className="px-4 py-3 text-center text-gray-500">{store.eligibleProducts}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      {OVERRIDE_OPTS.map((opt) => {
+                        const active = store.tnbOverride === opt.value;
+                        return (
+                          <button
+                            key={String(opt.value)}
+                            onClick={() => !active && setConfirm({ store, opt })}
+                            disabled={setting === store.id || active}
+                            className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition
+                              ${active ? opt.activeCls + " cursor-default" : opt.inactiveCls}
+                              ${setting === store.id ? "opacity-40 cursor-not-allowed" : ""}`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {stores.length === 0 && <p className="text-center py-12 text-gray-400">No stores found</p>}
+        </div>
+      )}
+
+      {confirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-navy/40 backdrop-blur-sm" onClick={() => setConfirm(null)} />
+          <div className="relative bg-cream rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
+            <h2 className="text-base font-bold text-navy mb-1">
+              Set "{confirm.opt.label}" for {confirm.store.name}?
+            </h2>
+            <p className="text-sm text-navy/50 mb-6">{confirm.opt.desc}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirm(null)}
+                className="flex-1 py-2.5 text-sm font-semibold text-navy border border-navy/20 rounded-xl hover:bg-white transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                className="flex-1 py-2.5 text-sm font-semibold text-navy bg-yellow hover:brightness-95 rounded-xl transition"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── T&B Requests ─────────────────────────────────────────────────────────────
+
+function TnbRequests() {
+  const [requests, setRequests] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("PENDING");
+  const [loading, setLoading] = useState(true);
+  const [resolving, setResolving] = useState(null); // request id being actioned
+
+  async function load(status) {
+    setLoading(true);
+    try {
+      const data = await fetchTnbRequests(status || undefined);
+      setRequests(data);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(statusFilter); }, [statusFilter]);
+
+  async function handleResolve(id, decision) {
+    setResolving(id);
+    try {
+      const updated = await resolveTnbRequest(id, decision);
+      setRequests((prev) =>
+        statusFilter === "PENDING"
+          ? prev.filter((r) => r.id !== id)
+          : prev.map((r) => (r.id === id ? { ...r, status: updated.status } : r))
+      );
+    } finally {
+      setResolving(null);
+    }
+  }
+
+  const pending  = requests.filter((r) => r.status === "PENDING").length;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-base font-bold text-navy">Try &amp; Buy Requests</h2>
+          {pending > 0 && (
+            <span className="text-xs font-semibold bg-yellow text-navy px-2 py-0.5 rounded-full">
+              {pending} pending
+            </span>
+          )}
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy
+                     focus:outline-none focus:border-navy bg-white transition"
+        >
+          <option value="PENDING">Pending</option>
+          <option value="APPROVED">Approved</option>
+          <option value="REJECTED">Rejected</option>
+          <option value="">All</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">Loading…</div>
+      ) : requests.length === 0 ? (
+        <div className="text-center py-20 text-gray-400">No requests</div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-cream border-b border-gray-100">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Product</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Store</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Current</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Requested</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Note</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Submitted</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Status / Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map((r) => (
+                <tr key={r.id} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                  <td className="px-5 py-3 font-medium text-navy">{r.product.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{r.product.store?.name ?? "—"}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      r.product.tryAndBuyEligible
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-gray-100 text-gray-400"
+                    }`}>
+                      {r.product.tryAndBuyEligible ? "Eligible" : "Not eligible"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      r.requestedEligible
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-red-100 text-red-600"
+                    }`}>
+                      {r.requestedEligible ? "Enable" : "Remove"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs max-w-[180px]">
+                    <span title={r.note ?? ""} className="block truncate">{r.note || "—"}</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
+                    {new Date(r.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {r.status === "PENDING" ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleResolve(r.id, "APPROVED")}
+                          disabled={resolving === r.id}
+                          className="text-xs font-semibold bg-emerald-500 text-white px-3 py-1 rounded-lg
+                                     hover:bg-emerald-600 transition disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleResolve(r.id, "REJECTED")}
+                          disabled={resolving === r.id}
+                          className="text-xs font-semibold border border-gray-200 text-gray-500 px-3 py-1 rounded-lg
+                                     hover:bg-gray-50 transition disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        r.status === "APPROVED"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-gray-100 text-gray-400"
+                      }`}>
+                        {r.status === "APPROVED" ? "Approved" : "Rejected"}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── T&B Management wrapper ────────────────────────────────────────────────────
+
+const TNB_SUB_TABS = [
+  { key: "products",   label: "Products" },
+  { key: "categories", label: "Categories" },
+  { key: "stores",     label: "Stores" },
+  { key: "requests",   label: "Requests" },
+];
+
+function TnbManagement() {
+  const [subTab, setSubTab] = useState("products");
+
+  return (
+    <div>
+      <div className="flex gap-0 border-b border-gray-100 mb-6">
+        {TNB_SUB_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setSubTab(t.key)}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition
+              ${subTab === t.key
+                ? "border-navy text-navy"
+                : "border-transparent text-gray-400 hover:text-navy"
+              }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {subTab === "products"   && <TnbProducts />}
+      {subTab === "categories" && <TnbCategories />}
+      {subTab === "stores"     && <TnbStores />}
+      {subTab === "requests"   && <TnbRequests />}
+    </div>
+  );
+}
+
 // ── AdminPanel shell ──────────────────────────────────────────────────────────
 
 const TABS = [
@@ -712,6 +1258,7 @@ const TABS = [
   { key: "orders",     label: "Orders" },
   { key: "customers",  label: "Customers" },
   { key: "stores",     label: "Stores" },
+  { key: "tnb",        label: "T&B Requests" },
 ];
 
 export default function AdminPanel() {
@@ -755,6 +1302,7 @@ export default function AdminPanel() {
       {tab === "stores"    && (
         <Stores onFilterOrders={(storeId) => drillToOrders({ storeId })} />
       )}
+      {tab === "tnb"       && <TnbManagement />}
     </div>
   );
 }

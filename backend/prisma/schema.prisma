@@ -18,6 +18,12 @@ enum Role {
   ADMIN
 }
 
+enum TnbRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum OrderStatus {
   PENDING
   RUNNER_ASSIGNED
@@ -46,31 +52,37 @@ model User {
   runnerOrders   Order[] @relation("RunnerOrders")
   riderOrders    Order[] @relation("RiderOrders")
 
+  tnbRequests    TnbRequest[] @relation("TnbRequester")
+  tnbResolutions TnbRequest[] @relation("TnbResolver")
+
   createdAt DateTime @default(now())
 }
 
 model Store {
-  id        String    @id @default(uuid())
-  name      String
-  location  String
-  products  Product[]
-  staff     User[]
-  createdAt DateTime  @default(now())
+  id          String    @id @default(uuid())
+  name        String
+  location    String
+  tnbOverride Boolean?  // null = no override; true = force all eligible; false = block all
+  products    Product[]
+  staff       User[]
+  createdAt   DateTime  @default(now())
 }
 
 model Product {
-  id        String      @id @default(uuid())
-  name      String
-  price     Decimal
-  images    String[]
-  category  String
-  trending  Boolean     @default(false)
+  id                String      @id @default(uuid())
+  name              String
+  price             Decimal
+  images            String[]
+  category          String
+  trending          Boolean     @default(false)
+  tryAndBuyEligible Boolean     @default(false)
 
   storeId   String
   store     Store       @relation(fields: [storeId], references: [id])
 
-  variants  Variant[]
+  variants   Variant[]
   orderItems OrderItem[]
+  tnbRequests TnbRequest[]
 }
 
 model Variant {
@@ -118,4 +130,29 @@ model OrderItem {
 
   variantId String
   variant   Variant @relation(fields: [variantId], references: [id])
+}
+
+model TnbCategoryDefault {
+  category  String   @id
+  eligible  Boolean
+  updatedAt DateTime @updatedAt
+}
+
+model TnbRequest {
+  id                String           @id @default(uuid())
+  requestedEligible Boolean
+  note              String?
+  status            TnbRequestStatus @default(PENDING)
+
+  productId         String
+  product           Product          @relation(fields: [productId], references: [id])
+
+  requestedById     String
+  requestedBy       User             @relation("TnbRequester", fields: [requestedById], references: [id])
+
+  resolvedById      String?
+  resolvedBy        User?            @relation("TnbResolver", fields: [resolvedById], references: [id])
+  resolvedAt        DateTime?
+
+  createdAt         DateTime         @default(now())
 }

@@ -9,6 +9,7 @@ const orderRoutes = require("./routes/orders");
 const productRoutes = require("./routes/products");
 const runnerRoutes = require("./routes/runner");
 const adminRoutes  = require("./routes/admin");
+const tnbRoutes    = require("./routes/tnb");
 const { errorHandler } = require("./middleware/errorHandler");
 const { registerSocketHandlers } = require("./sockets");
 
@@ -35,6 +36,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 app.use("/api/runner", runnerRoutes);
 app.use("/api/admin",  adminRoutes);
+app.use("/api/tnb",    tnbRoutes);
 // TODO: app.use("/api/rider", riderRoutes);
 
 app.use(errorHandler);
