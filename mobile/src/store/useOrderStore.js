@@ -35,14 +35,26 @@ export const useOrderStore = create((set, get) => ({
   setActiveOrder: (order) => set({ activeOrder: order }),
 
   // Places the order against the live API, clears the cart on success
-  placeOrder: async (deliveryAddr) => {
+  placeOrder: async (deliveryAddr, isGoldSubscriber, isTryAndBuy) => {
     const { cart } = get();
     const items = cart.map(({ productId, variantId, quantity }) => ({
       productId,
       variantId,
       quantity,
     }));
-    const { data } = await api.post("/orders", { deliveryAddr, etaMinutes: 30, items });
+
+    let finalAddr = deliveryAddr;
+    if (isTryAndBuy) {
+      finalAddr = `${deliveryAddr} | Try & Buy`;
+    }
+
+    const { data } = await api.post("/orders", { 
+      deliveryAddr: finalAddr, 
+      etaMinutes: 30, 
+      items,
+      isGoldSubscriber,
+      isTryAndBuy
+    });
     const order = data.data.order;
     set({ activeOrder: order, cart: [] });
     return order;

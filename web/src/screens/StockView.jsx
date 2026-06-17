@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchStoreProducts, bulkUpdateStock } from "../api/products";
+import { fetchStoreProducts, bulkUpdateStock, requestProductTbChange } from "../api/products";
 import { requestTnbChange } from "../api/tnb";
 
 function parseCSV(text) {
@@ -39,6 +39,17 @@ export default function StockView({ storeId }) {
   function showToast(msg) {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
+  }
+
+  async function handleRequestChange(productId, tbRequest) {
+    try {
+      await requestProductTbChange(productId, tbRequest);
+      const fresh = await fetchStoreProducts(storeId);
+      setProducts(fresh);
+      showToast("Eligibility change request sent to admin.");
+    } catch (e) {
+      alert("Failed to submit change request.");
+    }
   }
 
   // Export current stock as CSV
@@ -222,13 +233,36 @@ export default function StockView({ storeId }) {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Color</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Stock</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Status</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Try &amp; Buy</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Try & Buy (Precedence)</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Request Toggle</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Try & Buy (Modal)</th>
               </tr>
             </thead>
             <tbody>
               {filtered.flatMap((p) =>
                 p.variants.map((v, vi) => {
                   const level = stockLevel(v.stock);
+                  
+                  // Compute resolved eligibility for the product
+                  const storeOverride = p.store?.tbOverride;
+                  let eligible = false;
+                  let reason = "";
+                  
+                  if (storeOverride === "ENABLED") {
+                    eligible = true;
+                    reason = "Store Override: Enabled";
+                  } else if (storeOverride === "DISABLED") {
+                    eligible = false;
+                    reason = "Store Override: Disabled";
+                  } else if (p.tbEligible !== null && p.tbEligible !== undefined) {
+                    eligible = p.tbEligible;
+                    reason = `Product Override: ${p.tbEligible ? "Yes" : "No"}`;
+                  } else {
+                    const isCategoryDefault = p.category === "Sneakers" || p.category === "Apparel";
+                    eligible = isCategoryDefault;
+                    reason = `Category Default: ${isCategoryDefault ? "Yes" : "No"}`;
+                  }
+
                   return (
                     <tr key={v.id} className="border-b border-gray-50 hover:bg-cream/40 transition">
                       <td className="px-5 py-3 font-medium text-navy">
@@ -241,6 +275,44 @@ export default function StockView({ storeId }) {
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${level.cls}`}>
                           {level.label}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {vi === 0 ? (
+                          <div>
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${eligible ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
+                              {eligible ? "Eligible" : "Ineligible"}
+                            </span>
+                            <span className="text-[10px] text-gray-400 block mt-1 italic">({reason})</span>
+                            {p.tbRequest && p.tbRequest !== "NONE" && (
+                              <span className="text-[10px] bg-yellow text-navy px-1.5 py-0.5 rounded font-semibold block mt-1 w-max mx-auto">
+                                Pending: {p.tbRequest === "PENDING_ELIGIBLE" ? "Enable" : "Disable"}
+                              </span>
+                            )}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {vi === 0 ? (
+                          p.tbRequest && p.tbRequest !== "NONE" ? (
+                            <button
+                              disabled
+                              className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+                            >
+                              Request Pending
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleRequestChange(p.id, eligible ? "PENDING_INELIGIBLE" : "PENDING_ELIGIBLE")}
+                              className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition ${
+                                eligible
+                                  ? "border-red-200 text-red-600 bg-red-50 hover:bg-red-100"
+                                  : "border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100"
+                              }`}
+                            >
+                              {eligible ? "Request Disable" : "Request Enable"}
+                            </button>
+                          )
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {vi === 0 ? (() => {

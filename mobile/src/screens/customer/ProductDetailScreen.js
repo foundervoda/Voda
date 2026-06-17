@@ -25,7 +25,7 @@ const MOCK_PRODUCTS_LIST = [
     name: "Air Runner Max",
     price: 89.99,
     originalPrice: 119.99,
-    category: "Footwear",
+    category: "Sneakers",
     store: {
       name: "SNEAKER HOUSE",
       location: "Level 1, Unit 12",
@@ -49,7 +49,7 @@ const MOCK_PRODUCTS_LIST = [
     name: "Cloud Walker Pro",
     price: 119.99,
     originalPrice: 159.99,
-    category: "Footwear",
+    category: "Sneakers",
     store: {
       name: "SNEAKER HOUSE",
       location: "Level 1, Unit 12",
@@ -72,7 +72,7 @@ const MOCK_PRODUCTS_LIST = [
     name: "Retro Court Classic",
     price: 79.99,
     originalPrice: 99.99,
-    category: "Footwear",
+    category: "Sneakers",
     store: {
       name: "URBAN THREADS",
       location: "Level 2, Unit 7",
@@ -95,7 +95,7 @@ const MOCK_PRODUCTS_LIST = [
     name: "Urban Hiker Boot",
     price: 149.90,
     originalPrice: 199.00,
-    category: "Footwear",
+    category: "Boots",
     store: {
       name: "URBAN THREADS",
       location: "Level 2, Unit 7",
@@ -169,6 +169,7 @@ const MOCK_PRODUCT = MOCK_PRODUCTS_LIST[0];
 const convertToPremiumRupees = (rawPrice) => {
   const price = Number(rawPrice) || 0;
   if (price === 0) return 0;
+  if (price > 1000) return price; // Already in Rupees!
   
   if (Math.abs(price - 149.90) < 0.1) return 11990;
   if (Math.abs(price - 79.99) < 0.1) return 6399;
@@ -234,6 +235,31 @@ export default function ProductDetailScreen({ route, navigation }) {
     policy: false,
     shipping: false,
   });
+
+  const [recProducts, setRecProducts] = useState([]);
+  const [recLoading, setRecLoading] = useState(false);
+
+  useEffect(() => {
+    const activeProductCat = apiProduct?.category || MOCK_PRODUCT.category;
+    const activeProductId = productId || MOCK_PRODUCT.id;
+    if (!activeProductCat) return;
+
+    setRecLoading(true);
+    api.post("/products/recommend", { query: activeProductCat })
+      .then((res) => {
+        const items = res.data?.data?.products || [];
+        const filtered = items.filter(p => p.id !== activeProductId);
+        setRecProducts(filtered);
+      })
+      .catch((err) => {
+        console.warn("Failed to fetch personalized recommendations:", err.message);
+        const filtered = MOCK_PRODUCTS_LIST.filter(p => p.category === activeProductCat && p.id !== activeProductId);
+        setRecProducts(filtered);
+      })
+      .finally(() => {
+        setRecLoading(false);
+      });
+  }, [productId, apiProduct]);
 
   // Early Return: Loading State (must sit below all Hook declarations)
   if (isLoading && productId) {
@@ -343,6 +369,7 @@ export default function ProductDetailScreen({ route, navigation }) {
       size: selectedSize,
       image: getProductImage({ image: productData.images[0] })?.uri || productData.images[0],
       storeName: productData.store.name,
+      category: productData.category,
     });
 
     triggerToast(`Added size ${selectedSize} to cart! Try it at your door.`);
@@ -377,7 +404,7 @@ export default function ProductDetailScreen({ route, navigation }) {
           onPress={() => navigation?.goBack()}
           className="h-10 w-10 rounded-full bg-white/95 items-center justify-center shadow-md shadow-brand-blue/5 active:opacity-85"
         >
-          <Ionicons name="arrow-back" size={20} color="#012a62" />
+          <Ionicons name="chevron-back" size={24} color="#012a62" />
         </Pressable>
         
         <Pressable
@@ -681,6 +708,49 @@ export default function ProductDetailScreen({ route, navigation }) {
               </View>
             )}
           </View>
+
+          {/* Recommendations Section */}
+          <View style={pdStyles.recSection}>
+            <Text style={pdStyles.recSectionTitle}>Recommendations</Text>
+            {recLoading ? (
+              <ActivityIndicator size="small" color="#012a62" style={{ marginVertical: 20 }} />
+            ) : recProducts.length === 0 ? (
+              <Text style={pdStyles.recEmptyTxt}>No similar products found.</Text>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={pdStyles.recListContent}
+              >
+                {recProducts.map((item) => {
+                  const imageSource = getProductImage(item);
+                  const price = Number(item.price) || 0;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => {
+                        navigation.push("ProductDetail", { productId: item.id });
+                      }}
+                      style={pdStyles.recCard}
+                    >
+                      <View style={pdStyles.recImageWrapper}>
+                        {imageSource ? (
+                          <Image source={imageSource} style={pdStyles.recProductImage} resizeMode="cover" />
+                        ) : (
+                          <View style={pdStyles.recFallbackImageBg}>
+                            <Ionicons name="image-outline" size={20} color="#012a62" style={{ opacity: 0.3 }} />
+                          </View>
+                        )}
+                      </View>
+                      <Text numberOfLines={1} style={pdStyles.recProductName}>{item.name}</Text>
+                      <Text style={pdStyles.recProductCategory}>{item.category}</Text>
+                      <Text style={pdStyles.recProductPrice}>₹{formatRupeePrice(convertToPremiumRupees(price))}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
         </View>
       </ScrollView>
 
@@ -841,5 +911,78 @@ const pdStyles = StyleSheet.create({
     fontSize: 12,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+  },
+  recSection: {
+    marginTop: 24,
+  },
+  recSectionTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#012a62",
+    marginBottom: 14,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    paddingHorizontal: 20,
+  },
+  recListContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  recCard: {
+    width: 140,
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    padding: 8,
+    paddingBottom: 12,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: "rgba(1,42,98,0.06)",
+    shadowColor: "#012a62",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  recImageWrapper: {
+    width: "100%",
+    height: 100,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "rgba(1,42,98,0.02)",
+    marginBottom: 8,
+  },
+  recProductImage: {
+    width: "100%",
+    height: "100%",
+  },
+  recFallbackImageBg: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recProductName: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#012a62",
+  },
+  recProductCategory: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#94a3b8",
+    textTransform: "uppercase",
+    marginTop: 2,
+  },
+  recProductPrice: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: "#012a62",
+    marginTop: 4,
+  },
+  recEmptyTxt: {
+    fontSize: 12,
+    color: "rgba(1,42,98,0.5)",
+    fontStyle: "italic",
+    marginVertical: 10,
   },
 });

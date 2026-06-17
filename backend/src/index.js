@@ -45,4 +45,6 @@ app.use(errorHandler);
 registerSocketHandlers(io);
 
 const PORT = process.env.PORT || 3001;
+// API server listening on port (rebase merge complete)
 server.listen(PORT, () => console.log(`API server listening on port ${PORT}`));
+

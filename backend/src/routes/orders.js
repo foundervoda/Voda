@@ -2,19 +2,27 @@ const { Router } = require("express");
 const prisma = require("../lib/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { asyncHandler } = require("../middleware/errorHandler");
+const { enrichOrderWithFees, getProductEligibility } = require("../lib/orderHelper");
 
 const router = Router();
 
-// GET /api/orders?storeId=X — List orders for a store dashboard (STORE_STAFF)
+// GET /api/orders — List orders (filtered by storeId for staff, or customerId for customer)
 router.get(
   "/",
+  requireAuth,
   asyncHandler(async (req, res) => {
     const { storeId } = req.query;
-
     const { from, to } = req.query;
-    const where = storeId
-      ? { items: { some: { product: { storeId } } } }
-      : {};
+
+    const where = {};
+    if (storeId) {
+      where.items = { some: { product: { storeId } } };
+    }
+
+    // If logged-in user is a CUSTOMER, restrict to their own orders
+    if (req.user.role === "CUSTOMER") {
+      where.customerId = req.user.id;
+    }
 
     if (from || to) {
       where.createdAt = {};
@@ -25,7 +33,7 @@ router.get(
     const orders = await prisma.order.findMany({
       where,
       include: {
-        items: { include: { product: true, variant: true } },
+        items: { include: { product: { include: { store: true } }, variant: true } },
         customer: { select: { id: true, email: true, phone: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -33,7 +41,8 @@ router.get(
       ...(from || to ? {} : { take: 100 }),
     });
 
-    res.json({ data: { orders }, error: null });
+    const enrichedOrders = orders.map(order => enrichOrderWithFees(order, order.customer?.email));
+    res.json({ data: { orders: enrichedOrders }, error: null });
   })
 );
 
@@ -56,7 +65,7 @@ router.post(
     const variantIds = items.map((i) => i.variantId);
     const variants = await prisma.variant.findMany({
       where: { id: { in: variantIds } },
-      include: { product: { select: { storeId: true } } },
+      include: { product: { include: { store: true } } },
     });
 
     if (variants.length !== items.length) {
@@ -76,9 +85,27 @@ router.post(
     }
     const storeId = storeIds[0];
 
+    // Revalidate Try & Buy eligibility on the server
+    const isGold = req.user.email.toLowerCase().includes("gold");
+    const hasEligible = variants.some((v) => getProductEligibility(v.product, v.product.store));
+
+    if (req.body.isTryAndBuy && !hasEligible) {
+      return res.status(400).json({
+        data: null,
+        error: { message: "Try & Buy option is not available for the items in your cart", code: "VALIDATION_ERROR" },
+      });
+    }
+
+    // Determine if we should activate Try & Buy
+    const shouldHaveTryAndBuy = isGold ? hasEligible : (!!req.body.isTryAndBuy && hasEligible);
+
+    // Clean address of any user-submitted suffix and append if active
+    const cleanAddr = deliveryAddr.split(" | Try & Buy")[0].trim();
+    const finalAddr = shouldHaveTryAndBuy ? `${cleanAddr} | Try & Buy` : cleanAddr;
+
     const order = await prisma.order.create({
       data: {
-        deliveryAddr,
+        deliveryAddr: finalAddr,
         etaMinutes: etaMinutes ?? 30,
         customerId: req.user.id,
         items: {
@@ -90,16 +117,18 @@ router.post(
         },
       },
       include: {
-        items: { include: { product: true, variant: true } },
+        items: { include: { product: { include: { store: true } }, variant: true } },
       },
     });
 
+    const enriched = enrichOrderWithFees(order, req.user.email);
+
     // Emit new_order to the store dashboard and to all connected runners
     const io = req.app.get("io");
-    io.to(`store:${storeId}`).emit("new_order", { order });
-    io.to("runners").emit("new_order", { order });
+    io.to(`store:${storeId}`).emit("new_order", { order: enriched });
+    io.to("runners").emit("new_order", { order: enriched });
 
-    res.status(201).json({ data: { order }, error: null });
+    res.status(201).json({ data: { order: enriched }, error: null });
   })
 );
 
@@ -111,7 +140,7 @@ router.get(
     const order = await prisma.order.findUnique({
       where: { id: req.params.id },
       include: {
-        items: { include: { product: true, variant: true } },
+        items: { include: { product: { include: { store: true } }, variant: true } },
         customer: { select: { id: true, email: true, phone: true } },
         runner:  { select: { id: true, email: true, phone: true } },
         rider:   { select: { id: true, email: true, phone: true } },
@@ -122,7 +151,8 @@ router.get(
       return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
     }
 
-    res.json({ data: { order }, error: null });
+    const enriched = enrichOrderWithFees(order, order.customer?.email);
+    res.json({ data: { order: enriched }, error: null });
   })
 );
 
@@ -145,14 +175,52 @@ router.put(
     const order = await prisma.order.update({
       where: { id: req.params.id },
       data: { status },
-      include: { items: { include: { product: true, variant: true } } },
+      include: { 
+        items: { include: { product: { include: { store: true } }, variant: true } },
+        customer: { select: { email: true } }
+      },
     });
+
+    const enriched = enrichOrderWithFees(order, order.customer?.email);
 
     // Notify everyone in the order room of the status change
     const io = req.app.get("io");
-    io.to(`order:${order.id}`).emit("order_update", { order });
+    io.to(`order:${order.id}`).emit("order_update", { order: enriched });
 
-    res.json({ data: { order }, error: null });
+    res.json({ data: { order: enriched }, error: null });
+  })
+);
+
+// POST /api/orders/:id/confirm-tb-keeps — Customer locks in keeps & returns
+router.post(
+  "/:id/confirm-tb-keeps",
+  requireAuth,
+  requireRole("CUSTOMER"),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+    
+    // Stop the timer by updating tryTimerEnd to a past date
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: {
+        tryTimerEnd: new Date(0), // Set to past to indicate it's complete
+      },
+      include: {
+        items: { include: { product: { include: { store: true } }, variant: true } },
+        customer: { select: { email: true } }
+      }
+    });
+
+    const enriched = enrichOrderWithFees(order, order.customer?.email);
+
+    // Notify everyone
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order: enriched });
+
+    res.json({ data: { order: enriched }, error: null });
   })
 );
 

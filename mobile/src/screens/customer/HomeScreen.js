@@ -9,235 +9,112 @@ import {
   StatusBar,
   StyleSheet,
   TextInput,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../api/client";
 import { useOrderStore } from "../../store/useOrderStore";
+import { useAuthStore } from "../../store/useAuthStore";
+import ChatbotScreen from "./ChatbotScreen";
 
-// Seamless fallback mock data aligned with database seeds
-const FALLBACK_PRODUCTS = [
+const FALLBACK_STORES = [
   {
-    id: "prod-air-runner",
-    name: "Air Runner Max",
-    price: 89.99,
-    imageUrl: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600&auto=format&fit=crop",
-    category: "Footwear",
-    trending: true,
-    store: { name: "SNEAKER HOUSE", location: "Level 1, Unit 12" }
+    id: "f7d3ad59-b76f-4eae-b812-83f2836a9dac",
+    name: "Sneaker House",
+    location: "Level 1, Unit 12",
+    description: "Your ultimate footwear destination for classic sneakers and boots.",
+    image: "https://images.unsplash.com/photo-1552346154-21d32810aba3?w=800",
+    tags: ["Sneakers", "Boots"]
   },
   {
-    id: "prod-cloud-walker",
-    name: "Cloud Walker Pro",
-    price: 119.99,
-    imageUrl: "https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=600&auto=format&fit=crop",
-    category: "Footwear",
-    trending: true,
-    store: { name: "SNEAKER HOUSE", location: "Level 1, Unit 12" }
+    id: "e0a3b04c-83b3-4f51-b0db-6e6b5dcf0234",
+    name: "Zara Luxe Hub",
+    location: "Level 2, Unit 4",
+    description: "Premium high-end fashion, luxury apparel, and minimalist attire.",
+    image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800",
+    tags: ["Apparel"]
   },
   {
-    id: "prod-retro-court",
-    name: "Retro Court Classic",
-    price: 79.99,
-    imageUrl: "https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?w=600&auto=format&fit=crop",
-    category: "Footwear",
-    trending: true,
-    store: { name: "URBAN THREADS", location: "Level 2, Unit 7" }
-  },
-  {
-    id: "prod-urban-hiker",
-    name: "Urban Hiker Boot",
-    price: 149.90,
-    imageUrl: "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?w=600&auto=format&fit=crop",
-    category: "Footwear",
-    trending: true,
-    store: { name: "URBAN THREADS", location: "Level 2, Unit 7" }
-  },
-  {
-    id: "prod-trench-coat",
-    name: "Signature Trench Coat",
-    price: 149.90,
-    image: "/images/shoes/air-runner.png",
-    category: "Apparel",
-    trending: false,
-    store: { name: "URBAN THREADS", location: "Level 2, Unit 7" }
-  },
-  {
-    id: "prod-knit-hoodie",
-    name: "Oversized Knit Hoodie",
-    price: 79.99,
-    image: "/images/shoes/cloud-walker.png",
-    category: "Apparel",
-    trending: false,
-    store: { name: "URBAN THREADS", location: "Level 2, Unit 7" }
+    id: "d1c4a0f3-8b7c-4a34-a212-32a87a6b2319",
+    name: "Stellar Activewear",
+    location: "Level 1, Unit 18",
+    description: "Athletic utility clothing, high-performance wear, and trainers.",
+    image: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=800",
+    tags: ["Sneakers", "Apparel"]
   }
 ];
-
-const convertToPremiumRupees = (rawPrice) => {
-  const price = Number(rawPrice) || 0;
-  if (price === 0) return 0;
-  
-  if (Math.abs(price - 149.90) < 0.1) return 11990;
-  if (Math.abs(price - 79.99) < 0.1) return 6399;
-  if (Math.abs(price - 89.99) < 0.1) return 7199;
-  if (Math.abs(price - 119.99) < 0.1) return 9599;
-
-  const inrBase = price * 80;
-  return Math.round(inrBase / 100) * 100 - 1;
-};
-
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
-
-// Clean image URI resolver connecting local path strings to backend port
-const getProductImage = (item) => {
-  const basePath = "http://localhost:3001";
-  const imgPath = item?.images?.[0] || item?.imageUrl || item?.image;
-  
-  if (!imgPath) return null;
-  return imgPath.startsWith("http") ? { uri: imgPath } : { uri: `${basePath}${imgPath}` };
-};
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [chatbotVisible, setChatbotVisible] = useState(false);
 
-  const categories = ["All", "Sneakers", "Boots", "Apparel"];
+  const { user } = useAuthStore();
+  const userName = user?.email ? user.email.split("@")[0] : "Customer";
+  const capitalizedName = userName.charAt(0).toUpperCase() + userName.slice(1);
 
-  // Get active cart state to dynamically render a notification/badge
+  // Cart from Zustand
   const cart = useOrderStore((s) => s.cart || []);
   const cartCount = cart.reduce((sum, item) => sum + (item.quantity || 1), 0);
-  const addToCart = useOrderStore((s) => s.addToCart);
 
-  // React Query hook targeting GET /products
-  const { data: products, isLoading, error, refetch } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => api.get("/products").then((res) => res.data?.data?.products || res.data?.products),
+  // React Query: Fetch Stores
+  const { data: stores, isLoading, refetch } = useQuery({
+    queryKey: ["stores"],
+    queryFn: () => api.get("/products/stores").then((res) => res.data?.data?.stores || res.data?.stores || []),
     retry: false,
   });
 
-  // Decide whether to use loaded products or fall back
-  const baseProducts = products && products.length > 0 ? products : FALLBACK_PRODUCTS;
+  const baseStores = stores && stores.length > 0 ? stores : FALLBACK_STORES;
 
-  // Filter base products reactively based on user search query and category selection
-  const displayedProducts = baseProducts.filter((product) => {
-    // 1. Search Query Filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const matchSearch =
-        product.name?.toLowerCase().includes(query) ||
-        product.category?.toLowerCase().includes(query) ||
-        product.store?.name?.toLowerCase().includes(query);
-      if (!matchSearch) return false;
-    }
-
-    // 2. Category Chip Filter
-    if (selectedCategory !== "All") {
-      const categoryLower = product.category?.toLowerCase() || "";
-      const nameLower = product.name?.toLowerCase() || "";
-      
-      if (selectedCategory === "Sneakers") {
-        return categoryLower === "footwear" && !nameLower.includes("boot") && !nameLower.includes("hiker");
-      }
-      if (selectedCategory === "Boots") {
-        return categoryLower === "footwear" && (nameLower.includes("boot") || nameLower.includes("hiker"));
-      }
-      if (selectedCategory === "Apparel") {
-        return categoryLower === "apparel";
-      }
-    }
-
-    return true;
+  // Enrich stores with mock descriptions and cover images for premium look
+  const enrichedStores = baseStores.map((store) => {
+    const fallback = FALLBACK_STORES.find((fs) => fs.id === store.id) || {};
+    return {
+      ...store,
+      description: fallback.description || "Explore our wide range of premium collections in the mall.",
+      image: fallback.image || "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800",
+      tags: fallback.tags || ["Retail"]
+    };
   });
 
-  const renderCategoryChip = ({ item }) => {
-    const isActive = selectedCategory === item;
+  const displayedStores = enrichedStores.filter((store) => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
     return (
-      <Pressable
-        onPress={() => setSelectedCategory(item)}
-        style={[
-          chipStyles.pill,
-          isActive ? chipStyles.pillActive : chipStyles.pillInactive,
-        ]}
-      >
-        <Text
-          style={[
-            chipStyles.pillTxt,
-            isActive ? chipStyles.pillTxtActive : chipStyles.pillTxtInactive,
-          ]}
-        >
-          {item}
-        </Text>
-      </Pressable>
+      store.name?.toLowerCase().includes(query) ||
+      store.location?.toLowerCase().includes(query)
     );
-  };
+  });
 
-  const renderProductCard = ({ item }) => {
-    const imageSource = getProductImage(item);
-    const price = Number(item.price) || 0;
-    const premiumPrice = convertToPremiumRupees(price);
-
+  const renderStoreCard = ({ item }) => {
     return (
       <Pressable
-        onPress={() => navigation.navigate("ProductDetail", { productId: item.id })}
-        style={styles.iosCardShadow}
-        className="flex-1 bg-white m-2 rounded-2xl overflow-hidden border border-brand-blue/[0.03] active:opacity-90 active:scale-[0.98] transition-transform duration-100"
+        onPress={() => navigation.navigate("StoreCatalog", { store: item })}
+        style={styles.storeCard}
       >
-        {/* Product Image */}
-        <View className="relative h-44 w-full bg-brand-blue/[0.02]">
-          {imageSource ? (
-            <Image
-              source={imageSource}
-              className="h-full w-full"
-              resizeMode="cover"
-            />
-          ) : (
-            <View className="h-full w-full items-center justify-center bg-brand-blue/[0.03]">
-              <Ionicons name="image-outline" size={24} color="#012a62" style={{ opacity: 0.3 }} />
-            </View>
-          )}
-          {item.trending && (
-            <View className="absolute top-2.5 left-2.5 bg-brand-accent px-2 py-0.5 rounded-full shadow-xs">
-              <Text className="text-[9px] font-extrabold text-brand-blue uppercase tracking-wide">
-                🔥 Trending
-              </Text>
-            </View>
-          )}
+        <View style={styles.imageWrapper}>
+          <Image source={{ uri: item.image }} style={styles.storeImage} resizeMode="cover" />
+          <View style={styles.gradientOverlay} />
+          <View style={styles.locationBadge}>
+            <Ionicons name="location" size={10} color="#0d1b5e" />
+            <Text style={styles.locationText}>{item.location}</Text>
+          </View>
         </View>
 
-        {/* Card Details */}
-        <View className="p-3.5 flex-1 justify-between">
-          <View className="mb-2">
-            {/* Store Name (medium weight typography hierarchy) */}
-            <Text className="text-[10px] font-medium text-brand-blue/50 uppercase tracking-widest mb-1">
-              {item.store?.name || "Voda Store"}
-            </Text>
-            {/* Product Title (prominent bold title) */}
-            <Text 
-              numberOfLines={1} 
-              className="text-sm font-bold text-brand-blue tracking-tight"
-            >
-              {item.name}
-            </Text>
-          </View>
-
-          {/* Pricing & Tag Banner */}
-          <View className="flex-row items-center justify-between mt-1">
-            <Text className="text-base font-extrabold text-brand-blue">
-              ₹{formatRupeePrice(premiumPrice)}
-            </Text>
-            
-            {/* Brand Accent Highlights Try & Buy Eligible */}
-            <View className="bg-brand-accent px-2 py-0.5 rounded-full border border-brand-accent/20 flex-row items-center space-x-1 shadow-xs">
-              <Ionicons name="shirt" size={8} color="#012a62" />
-              <Text className="text-[8px] font-black text-brand-blue uppercase tracking-wider">
-                Try & Buy
-              </Text>
-            </View>
+        <View style={styles.cardInfo}>
+          <Text style={styles.storeName}>{item.name}</Text>
+          <Text style={styles.storeDescription} numberOfLines={2}>
+            {item.description}
+          </Text>
+          
+          <View style={styles.tagsContainer}>
+            {item.tags.map((tag, idx) => (
+              <View key={idx} style={styles.tagBadge}>
+                <Text style={styles.tagText}>{tag}</Text>
+              </View>
+            ))}
           </View>
         </View>
       </Pressable>
@@ -245,148 +122,338 @@ export default function HomeScreen({ navigation }) {
   };
 
   return (
-    <View 
-      style={{ paddingTop: Math.max(insets.top, 12) }} 
-      className="flex-1 bg-brand-light"
-    >
+    <View style={[styles.root, { paddingTop: Math.max(insets.top, 12) }]}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header section with generous spacing */}
-      <View className="px-4 pt-5 pb-3 flex-row items-center justify-between">
+      {/* Header */}
+      <View style={styles.header}>
         <View>
-          <Text className="text-xs font-black text-brand-blue/40 uppercase tracking-widest mb-0.5">
-            Welcome to Voda
-          </Text>
-          <Text className="text-3xl font-black text-brand-blue tracking-tight">
-            Trending Products
-          </Text>
+          <View style={styles.logoContainer}>
+            <View style={styles.logoIconBg}>
+              <Ionicons name="bag-handle" size={15} color="#fdde59" />
+            </View>
+            <Text style={styles.brandText}>Voda</Text>
+          </View>
+          <Text style={styles.greetingText}>Welcome back, {capitalizedName}</Text>
+          <Text style={styles.headerTitle}>Mall Directory</Text>
         </View>
         
-        {/* Quick Cart Shortcut Icon with Native Badge */}
+        {/* Cart Shortcut */}
         <Pressable 
           onPress={() => navigation.navigate("Cart")}
-          className="h-11 w-11 rounded-full bg-white border border-brand-blue/10 items-center justify-center shadow-sm active:opacity-80 active:scale-95 transition-all relative"
+          style={styles.cartBtn}
         >
-          <Ionicons name="cart" size={20} color="#012a62" />
+          <Ionicons name="cart" size={22} color="#0d1b5e" />
           {cartCount > 0 && (
-            <View className="absolute -top-1.5 -right-1.5 bg-brand-accent border border-brand-light rounded-full min-w-[18px] h-[18px] px-1 items-center justify-center">
-              <Text className="text-[9px] font-black text-brand-blue">
-                {cartCount}
-              </Text>
+            <View style={styles.cartBadge}>
+              <Text style={styles.cartBadgeText}>{cartCount}</Text>
             </View>
           )}
         </Pressable>
       </View>
 
-      {/* Premium iOS-style search bar with subtle background color and alignments */}
-      <View className="px-4 mb-4">
-        <View className="flex-row items-center bg-brand-blue/[0.04] border border-brand-blue/[0.08] rounded-2xl px-4 py-3">
-          <Ionicons name="search" size={18} color="#012a62" style={{ opacity: 0.6, marginRight: 8 }} />
+      {/* Search Input */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchWrapper}>
+          <Ionicons name="search" size={18} color="#0d1b5e" style={styles.searchIcon} />
           <TextInput
-            placeholder="Search products, stores, brands..."
-            placeholderTextColor="rgba(1, 42, 98, 0.4)"
+            placeholder="Search stores by name or location..."
+            placeholderTextColor="rgba(13, 27, 94, 0.4)"
             value={searchQuery}
             onChangeText={setSearchQuery}
             clearButtonMode="while-editing"
-            className="flex-1 text-brand-blue text-sm font-semibold p-0"
+            style={styles.searchInput}
           />
-          {searchQuery.length > 0 ? (
-            <Pressable onPress={() => setSearchQuery("")} className="p-0.5 active:opacity-60">
-              <Ionicons name="close-circle" size={16} color="#012a62" style={{ opacity: 0.6 }} />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery("")}>
+              <Ionicons name="close-circle" size={16} color="#0d1b5e" style={{ opacity: 0.6 }} />
             </Pressable>
-          ) : (
-            <Ionicons name="options-outline" size={18} color="#012a62" style={{ opacity: 0.6 }} />
           )}
         </View>
       </View>
 
-      {/* Premium iOS Scrolling Category Filter Bar */}
-      <View className="mb-5 pl-4">
+      {/* Directory List */}
+      {isLoading && displayedStores.length === 0 ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#0d1b5e" />
+        </View>
+      ) : (
         <FlatList
-          horizontal
-          data={categories}
-          renderItem={renderCategoryChip}
-          keyExtractor={(item) => item}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingRight: 16 }}
+          data={displayedStores}
+          renderItem={renderStoreCard}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          onRefresh={refetch}
+          refreshing={!!isLoading}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Ionicons name="alert-circle-outline" size={48} color="#0d1b5e" style={{ opacity: 0.4, marginBottom: 8 }} />
+              <Text style={styles.emptyText}>No stores found matching your query</Text>
+            </View>
+          }
         />
-      </View>
-
-      {/* Try & Buy Info Header Banner */}
-      <View className="mx-4 mb-6 bg-brand-blue/[0.03] border border-brand-blue/[0.08] rounded-2xl p-4 flex-row items-center space-x-3.5 shadow-xs">
-        <View className="bg-brand-accent h-10 w-10 rounded-full items-center justify-center shadow-xs">
-          <Ionicons name="shirt" size={18} color="#012a62" />
-        </View>
-        <View className="flex-1">
-          <Text className="text-xs font-black text-brand-blue uppercase tracking-wider mb-0.5">
-            Voda Try before you pay
-          </Text>
-          <Text className="text-[11px] text-brand-blue/75 leading-relaxed font-semibold">
-            Try items at your doorstep for 10 minutes before finalizing payment.
-          </Text>
-        </View>
-      </View>
-
-      {/* Loading State */}
-      {isLoading && displayedProducts.length === 0 && (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#012a62" />
-        </View>
       )}
 
-      {/* Product List Grid */}
-      <FlatList
-        data={displayedProducts}
-        renderItem={renderProductCard}
-        keyExtractor={(item) => item.id}
-        numColumns={2}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 32 }}
-        showsVerticalScrollIndicator={false}
-        onRefresh={refetch}
-        refreshing={!!isLoading}
-        ListEmptyComponent={
-          <View className="flex-1 items-center justify-center py-20">
-            <Ionicons name="alert-circle-outline" size={48} color="#012a62" className="opacity-40 mb-2" />
-            <Text className="text-sm font-bold text-brand-blue opacity-50">No products found</Text>
-          </View>
-        }
-      />
+      {/* Floating Chatbot FAB */}
+      <Pressable
+        onPress={() => setChatbotVisible(true)}
+        style={styles.chatbotFab}
+      >
+        <Ionicons name="chatbubble-ellipses" size={24} color="#fdde59" />
+      </Pressable>
+
+      {/* Chatbot Modal */}
+      <Modal
+        animationType="slide"
+        presentationStyle="pageSheet"
+        visible={chatbotVisible}
+        onRequestClose={() => setChatbotVisible(false)}
+      >
+        <ChatbotScreen navigation={navigation} onClose={() => setChatbotVisible(false)} />
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  iosCardShadow: {
-    shadowColor: "#012a62",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 3,
+  root: {
+    flex: 1,
+    backgroundColor: "#fdf9ea",
   },
-});
-
-// Static styles for category chips — avoids NativeWind dynamic className + React Nav v7 bug
-const chipStyles = StyleSheet.create({
-  pill: {
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 999,
-    marginRight: 10,
-    borderWidth: 1,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
-  pillActive: {
-    backgroundColor: "#012a62",
-    borderColor: "#012a62",
-  },
-  pillInactive: {
-    backgroundColor: "rgba(1,42,98,0.04)",
-    borderColor: "rgba(1,42,98,0.05)",
-  },
-  pillTxt: {
+  headerSubtitle: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
+    color: "rgba(13, 27, 94, 0.4)",
+    textTransform: "uppercase",
+    letterSpacing: 1.5,
+  },
+  logoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  logoIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: "#0d1b5e",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+    shadowColor: "#0d1b5e",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  brandText: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#0d1b5e",
     letterSpacing: 0.5,
   },
-  pillTxtActive: { color: "#ffffff" },
-  pillTxtInactive: { color: "rgba(1,42,98,0.7)" },
+  greetingText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "rgba(13, 27, 94, 0.5)",
+    marginTop: 2,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: "#0d1b5e",
+    letterSpacing: -0.5,
+    marginTop: 1,
+  },
+  cartBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "rgba(13, 27, 94, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0d1b5e",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+    position: "relative",
+  },
+  cartBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: "#fdde59",
+    borderWidth: 1.5,
+    borderColor: "#ffffff",
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  cartBadgeText: {
+    fontSize: 9,
+    fontWeight: "900",
+    color: "#0d1b5e",
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  searchWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(13, 27, 94, 0.04)",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 44,
+    borderWidth: 1,
+    borderColor: "rgba(13, 27, 94, 0.05)",
+  },
+  searchIcon: {
+    opacity: 0.6,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#0d1b5e",
+    fontWeight: "600",
+    padding: 0,
+  },
+  listContent: {
+    paddingBottom: 100,
+  },
+  storeCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    overflow: "hidden",
+    shadowColor: "#0d1b5e",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(13, 27, 94, 0.03)",
+  },
+  imageWrapper: {
+    width: "100%",
+    height: 160,
+    position: "relative",
+  },
+  storeImage: {
+    width: "100%",
+    height: "100%",
+  },
+  gradientOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: "rgba(0, 0, 0, 0.15)", // Subtle overlay
+  },
+  locationBadge: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "#fdde59",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    shadowColor: "#0d1b5e",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  locationText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#0d1b5e",
+    marginLeft: 4,
+  },
+  cardInfo: {
+    padding: 16,
+  },
+  storeName: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#0d1b5e",
+    letterSpacing: -0.2,
+  },
+  storeDescription: {
+    fontSize: 13,
+    color: "rgba(13, 27, 94, 0.6)",
+    fontWeight: "500",
+    lineHeight: 18,
+    marginTop: 6,
+  },
+  tagsContainer: {
+    flexDirection: "row",
+    marginTop: 12,
+  },
+  tagBadge: {
+    backgroundColor: "rgba(13, 27, 94, 0.05)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  tagText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#0d1b5e",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 80,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#0d1b5e",
+    fontWeight: "700",
+    opacity: 0.5,
+  },
+  chatbotFab: {
+    position: "absolute",
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#0d1b5e",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0d1b5e",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+    zIndex: 9999,
+  },
 });

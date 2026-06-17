@@ -1,25 +1,36 @@
 import { create } from "zustand";
-import { api, saveToken, clearToken } from "../api/client";
+import {
+  api,
+  saveToken,
+  clearToken,
+  saveAddress,
+  clearAddress,
+  getAddress,
+} from "../api/client";
 
 export const useAuthStore = create((set) => ({
   user: null,
+  address: "",
   isLoading: true,
 
   login: async (email, password) => {
     const { data } = await api.post("/auth/login", { email, password });
     await saveToken(data.data.token);
-    set({ user: data.data.user });
+    const address = await getAddress();
+    set({ user: data.data.user, address: address || "" });
   },
 
   register: async (payload) => {
     const { data } = await api.post("/auth/register", payload);
     await saveToken(data.data.token);
-    set({ user: data.data.user });
+    const address = await getAddress();
+    set({ user: data.data.user, address: address || "" });
   },
 
   logout: async () => {
     await clearToken();
-    set({ user: null });
+    await clearAddress();
+    set({ user: null, address: "" });
   },
 
   updateProfile: async (payload) => {
@@ -27,13 +38,19 @@ export const useAuthStore = create((set) => ({
     set({ user: data.data.user });
   },
 
+  updateAddress: async (addr) => {
+    await saveAddress(addr);
+    set({ address: addr });
+  },
+
   // Called on app start — restores the session from a stored token
   hydrate: async () => {
     try {
       const { data } = await api.get("/auth/me");
-      set({ user: data.data.user, isLoading: false });
+      const address = await getAddress();
+      set({ user: data.data.user, address: address || "", isLoading: false });
     } catch (err) {
-      set({ user: null, isLoading: false });
+      set({ user: null, address: "", isLoading: false });
     }
   },
 }));

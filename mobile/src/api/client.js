@@ -54,3 +54,7 @@ api.interceptors.response.use(
 export const saveToken = (token) => storage.setItem(TOKEN_KEY, token);
 export const clearToken = () => storage.deleteItem(TOKEN_KEY);
 export const getToken = () => storage.getItem(TOKEN_KEY);
+
+export const saveAddress = (addr) => storage.setItem("default_address", addr);
+export const clearAddress = () => storage.deleteItem("default_address");
+export const getAddress = () => storage.getItem("default_address");

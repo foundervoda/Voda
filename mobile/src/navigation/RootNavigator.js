@@ -8,6 +8,8 @@ import ProductDetailScreen from "../screens/customer/ProductDetailScreen";
 import CartScreen from "../screens/customer/CartScreen";
 import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmScreen from "../screens/customer/OrderConfirmScreen";
+import VodaGoldScreen from "../screens/customer/VodaGoldScreen";
+import TryBuyScreen from "../screens/customer/TryBuyScreen";
 import RunnerNavigator from "./RunnerNavigator";
 import RiderNavigator from "./RiderNavigator";
 import { SocketProvider } from "../api/SocketContext";
@@ -32,7 +34,7 @@ export default function RootNavigator() {
 
   return user ? (
     <SocketProvider>
-      {user.role === "RUNNER" ? (
+      {user.role === "RUNNER" || user.role === "RIDER" ? (
         <RunnerNavigator />
       ) : user.role === "RIDER" ? (
         <RiderNavigator />
@@ -72,6 +74,20 @@ export default function RootNavigator() {
             headerStyle: { backgroundColor: "#fdf9ea" }, 
             headerTintColor: "#012a62", 
             headerTitleStyle: { fontWeight: "700" } 
+          }} 
+        />
+        <Stack.Screen 
+          name="VodaGold" 
+          component={VodaGoldScreen} 
+          options={{ 
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="TryBuy" 
+          component={TryBuyScreen} 
+          options={{ 
+            headerShown: false,
           }} 
         />
       </Stack.Navigator>
