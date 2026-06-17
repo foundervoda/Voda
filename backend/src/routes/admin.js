@@ -105,4 +105,100 @@ router.get(
   })
 );
 
+// GET /api/admin/tb/products — List all products with eligibility details
+router.get(
+  "/tb/products",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const products = await prisma.product.findMany({
+      include: {
+        store: { select: { id: true, name: true, tbOverride: true } }
+      },
+      orderBy: { name: "asc" }
+    });
+    res.json({ data: { products }, error: null });
+  })
+);
+
+// POST /api/admin/tb/product/:id — Toggle product eligibility
+router.post(
+  "/tb/product/:id",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { tbEligible } = req.body;
+    const product = await prisma.product.update({
+      where: { id: req.params.id },
+      data: { tbEligible },
+      include: { store: true }
+    });
+    res.json({ data: { product }, error: null });
+  })
+);
+
+// POST /api/admin/tb/store/:id — Set store-level override
+router.post(
+  "/tb/store/:id",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { tbOverride } = req.body; // NONE, ENABLED, DISABLED
+    const store = await prisma.store.update({
+      where: { id: req.params.id },
+      data: { tbOverride }
+    });
+    res.json({ data: { store }, error: null });
+  })
+);
+
+// POST /api/admin/tb/bulk-category — Bulk toggle category
+router.post(
+  "/tb/bulk-category",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { category, eligible } = req.body;
+    await prisma.product.updateMany({
+      where: { category },
+      data: { tbEligible: eligible }
+    });
+    res.json({ data: { success: true }, error: null });
+  })
+);
+
+// POST /api/admin/tb/request/:id/approve — Approve manager change request
+router.post(
+  "/tb/request/:id/approve",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: { message: "Product not found" } });
+
+    let targetEligibility = null;
+    if (existing.tbRequest === "PENDING_ELIGIBLE") targetEligibility = true;
+    if (existing.tbRequest === "PENDING_INELIGIBLE") targetEligibility = false;
+
+    const product = await prisma.product.update({
+      where: { id: req.params.id },
+      data: {
+        tbEligible: targetEligibility !== null ? targetEligibility : existing.tbEligible,
+        tbRequest: null
+      },
+      include: { store: true }
+    });
+    res.json({ data: { product }, error: null });
+  })
+);
+
+// POST /api/admin/tb/request/:id/deny — Deny manager change request
+router.post(
+  "/tb/request/:id/deny",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const product = await prisma.product.update({
+      where: { id: req.params.id },
+      data: { tbRequest: null },
+      include: { store: true }
+    });
+    res.json({ data: { product }, error: null });
+  })
+);
+
 module.exports = router;

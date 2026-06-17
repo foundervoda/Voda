@@ -63,6 +63,7 @@ model Store {
   name        String
   location    String
   tnbOverride Boolean?  // null = no override; true = force all eligible; false = block all
+  tbOverride  String    @default("NONE") // NONE, ENABLED, DISABLED
   products    Product[]
   staff       User[]
   createdAt   DateTime  @default(now())
@@ -76,6 +77,8 @@ model Product {
   category          String
   trending          Boolean     @default(false)
   tryAndBuyEligible Boolean     @default(false)
+  tbEligible        Boolean?   // Explicit eligibility flag
+  tbRequest         String?    // PENDING_ELIGIBLE, PENDING_INELIGIBLE, NONE
 
   storeId   String
   store     Store       @relation(fields: [storeId], references: [id])

@@ -4,6 +4,12 @@ import {
   fetchAdminOrders,
   fetchAdminCustomers,
   fetchAdminStores,
+  fetchAdminTbProducts,
+  updateAdminProductTb,
+  updateAdminStoreTb,
+  bulkUpdateCategoryTb,
+  approveManagerTbRequest,
+  denyManagerTbRequest,
 } from "../api/admin";
 import {
   fetchTnbRequests, resolveTnbRequest,
@@ -136,7 +142,7 @@ function AdminOrderModal({ order, onClose }) {
                     <p className="text-navy font-bold text-sm">×{item.quantity}</p>
                     {item.product?.price && (
                       <p className="text-xs text-gray-400">
-                        KES {(Number(item.product.price) * item.quantity).toLocaleString()}
+                        ₹{(Number(item.product.price) * item.quantity).toLocaleString()}
                       </p>
                     )}
                   </div>
@@ -146,7 +152,7 @@ function AdminOrderModal({ order, onClose }) {
             {total > 0 && (
               <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
                 <span className="text-sm font-semibold text-navy">Total</span>
-                <span className="text-sm font-bold text-navy">KES {total.toLocaleString()}</span>
+                <span className="text-sm font-bold text-navy">₹{total.toLocaleString()}</span>
               </div>
             )}
           </Section>
@@ -483,177 +489,10 @@ function Customers({ onFilterOrders }) {
   );
 }
 
-// ── CSV export helpers ────────────────────────────────────────────────────────
-
-function escapeCSV(v) {
-  const s = String(v ?? "");
-  return s.includes(",") || s.includes('"') || s.includes("\n")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
-function downloadCSV(rows, filename) {
-  const csv = rows.map((r) => r.map(escapeCSV).join(",")).join("\n");
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function todayRange() {
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  const end   = new Date(); end.setHours(23, 59, 59, 999);
-  return { from: start.toISOString(), to: end.toISOString() };
-}
-
-function lastNDaysRange(n) {
-  const end   = new Date(); end.setHours(23, 59, 59, 999);
-  const start = new Date(); start.setDate(start.getDate() - n); start.setHours(0, 0, 0, 0);
-  return { from: start.toISOString(), to: end.toISOString() };
-}
-
-function lastMonthRange() {
-  const now   = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const end   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-  return { from: start.toISOString(), to: end.toISOString() };
-}
-
-// ── ExportModal ───────────────────────────────────────────────────────────────
-
-function ExportModal({ store, onClose }) {
-  const [from, setFrom]       = useState("");
-  const [to, setTo]           = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState(null);
-
-  useEffect(() => {
-    const handler = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  function applyPreset(range) {
-    const f = new Date(range.from);
-    const t = new Date(range.to);
-    setFrom(f.toISOString().slice(0, 10));
-    setTo(t.toISOString().slice(0, 10));
-  }
-
-  async function doExport() {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = { storeId: store.id };
-      if (from) params.from = new Date(from).toISOString();
-      if (to)   params.to   = new Date(to + "T23:59:59").toISOString();
-
-      const orders = await fetchAdminOrders(params);
-
-      const header = ["Order ID", "Date", "Customer Email", "Customer Phone", "Items", "Address", "Status", "Runner"];
-      const rows = orders.map((o) => [
-        o.id.slice(-6).toUpperCase(),
-        new Date(o.createdAt).toLocaleString("en-GB"),
-        o.customer?.email ?? "",
-        o.customer?.phone ?? "",
-        o.items.map((i) => `${i.product?.name} x${i.quantity}`).join("; "),
-        o.deliveryAddr,
-        STATUS_LABEL[o.status] ?? o.status,
-        o.runner?.email ?? "",
-      ]);
-
-      const label = from && to ? `${from}_to_${to}` : from ? `from_${from}` : to ? `to_${to}` : "all";
-      downloadCSV([header, ...rows], `${store.name.replace(/\s+/g, "_")}_orders_${label}.csv`);
-      onClose();
-    } catch (e) {
-      setError("Failed to fetch orders. Try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const PRESETS = [
-    { label: "Today",       fn: () => applyPreset(todayRange()) },
-    { label: "Last 7 days", fn: () => applyPreset(lastNDaysRange(7)) },
-    { label: "Last month",  fn: () => applyPreset(lastMonthRange()) },
-  ];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-navy/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        {/* Header */}
-        <div className="bg-navy px-6 py-4 rounded-t-2xl flex items-center justify-between">
-          <div>
-            <p className="text-cream font-bold">Export Orders</p>
-            <p className="text-cream/50 text-xs mt-0.5">{store.name}</p>
-          </div>
-          <button onClick={onClose} className="text-cream/50 hover:text-cream text-xl leading-none">✕</button>
-        </div>
-
-        <div className="p-6 space-y-5">
-          {/* Presets */}
-          <div>
-            <p className="text-xs font-semibold text-navy/50 uppercase tracking-wide mb-2">Quick select</p>
-            <div className="flex gap-2">
-              {PRESETS.map((p) => (
-                <button
-                  key={p.label}
-                  onClick={p.fn}
-                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-navy hover:bg-cream hover:border-navy transition"
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Custom range */}
-          <div>
-            <p className="text-xs font-semibold text-navy/50 uppercase tracking-wide mb-2">Custom range</p>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
-              />
-              <span className="text-gray-400 text-sm">to</span>
-              <input
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy focus:outline-none focus:border-navy"
-              />
-            </div>
-            {(!from && !to) && (
-              <p className="text-xs text-gray-400 mt-1.5">Leave blank to export all orders</p>
-            )}
-          </div>
-
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-
-          <button
-            onClick={doExport}
-            disabled={loading}
-            className="w-full bg-navy text-yellow font-bold py-3 rounded-xl text-sm hover:brightness-110 transition disabled:opacity-50"
-          >
-            {loading ? "Fetching orders…" : "Download CSV"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Stores ────────────────────────────────────────────────────────────────────
 
 function Stores({ onFilterOrders }) {
   const [stores, setStores]       = useState(null);
-  const [exportStore, setExport]  = useState(null);
 
   useEffect(() => {
     fetchAdminStores().then(setStores).catch(console.error);
@@ -661,8 +500,6 @@ function Stores({ onFilterOrders }) {
 
   return (
     <div>
-      {exportStore && <ExportModal store={exportStore} onClose={() => setExport(null)} />}
-
       {!stores ? <Spinner /> : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <table className="w-full text-sm">
@@ -692,12 +529,6 @@ function Stores({ onFilterOrders }) {
                         className="text-xs font-semibold text-navy hover:underline"
                       >
                         View orders →
-                      </button>
-                      <button
-                        onClick={() => setExport(s)}
-                        className="text-xs font-semibold text-navy bg-yellow px-2.5 py-1 rounded-lg hover:brightness-95 transition"
-                      >
-                        Export CSV
                       </button>
                     </div>
                   </td>
@@ -1251,6 +1082,276 @@ function TnbManagement() {
   );
 }
 
+// ── Try & Buy Settings Toggle Component ────────────────────────────────────────
+
+function TryBuyToggles() {
+  const [products, setProducts] = useState([]);
+  const [stores, setStores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  
+  const categories = ["Sneakers", "Apparel", "Boots"];
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [prodList, storeList] = await Promise.all([
+        fetchAdminTbProducts(),
+        fetchAdminStores()
+      ]);
+      setProducts(prodList);
+      setStores(storeList);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProductToggle = async (id, currentVal) => {
+    let newVal;
+    if (currentVal === true) newVal = false;
+    else if (currentVal === false) newVal = null;
+    else newVal = true;
+
+    try {
+      const updated = await updateAdminProductTb(id, newVal);
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, tbEligible: updated.tbEligible } : p));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleStoreOverrideChange = async (id, val) => {
+    try {
+      const updated = await updateAdminStoreTb(id, val);
+      setStores(prev => prev.map(s => s.id === id ? { ...s, tbOverride: updated.tbOverride } : s));
+      const freshProducts = await fetchAdminTbProducts();
+      setProducts(freshProducts);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleBulkCategory = async (category, eligible) => {
+    if (!window.confirm(`Are you sure you want to bulk set all products in ${category} to ${eligible ? "Eligible" : "Ineligible"}?`)) {
+      return;
+    }
+    try {
+      await bulkUpdateCategoryTb(category, eligible);
+      loadData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleApprove = async (id) => {
+    try {
+      await approveManagerTbRequest(id);
+      loadData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeny = async (id) => {
+    try {
+      await denyManagerTbRequest(id);
+      loadData();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const resolveEligibility = (product, storeOverride) => {
+    if (storeOverride === "ENABLED") return { eligible: true, reason: "Store Override: Enabled" };
+    if (storeOverride === "DISABLED") return { eligible: false, reason: "Store Override: Disabled" };
+    if (product.tbEligible !== null && product.tbEligible !== undefined) {
+      return { eligible: product.tbEligible, reason: `Product Override: ${product.tbEligible ? "Yes" : "No"}` };
+    }
+    const isCategoryDefault = product.category === "Sneakers" || product.category === "Apparel";
+    return { eligible: isCategoryDefault, reason: `Category Default: ${isCategoryDefault ? "Yes" : "No"}` };
+  };
+
+  const pendingRequests = products.filter(p => p.tbRequest && p.tbRequest !== "NONE");
+
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.store?.name.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = !categoryFilter || p.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="space-y-8 text-navy">
+      {/* Change Requests Section */}
+      {pendingRequests.length > 0 && (
+        <div className="bg-yellow/10 border border-yellow/40 rounded-2xl p-5 space-y-4">
+          <h3 className="font-bold text-navy text-lg flex items-center gap-2">
+            <span className="animate-pulse block w-2.5 h-2.5 rounded-full bg-yellow" />
+            Pending Store Manager Change Requests
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {pendingRequests.map(p => (
+              <div key={p.id} className="bg-white rounded-xl border border-yellow/25 p-4 flex flex-col justify-between shadow-sm">
+                <div>
+                  <p className="font-bold text-navy">{p.name}</p>
+                  <p className="text-xs text-gray-500">{p.category} • {p.store?.name}</p>
+                  <div className="mt-2 inline-block bg-yellow text-navy text-xs px-2.5 py-1 rounded-full font-semibold">
+                    Requesting: {p.tbRequest === "PENDING_ELIGIBLE" ? "Eligible" : "Ineligible"}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={() => handleApprove(p.id)}
+                    className="flex-1 bg-navy text-yellow text-xs font-bold py-2 rounded-lg hover:brightness-110 transition"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handleDeny(p.id)}
+                    className="flex-1 border border-gray-200 text-gray-500 text-xs font-bold py-2 rounded-lg hover:bg-gray-50 transition"
+                  >
+                    Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Store Overrides Grid */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <h3 className="font-bold text-navy text-lg">Store-Level Overrides</h3>
+        <p className="text-xs text-gray-400">Setting a store override takes highest precedence and forces all items in that store to be eligible/ineligible.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {stores.map(s => (
+            <div key={s.id} className="bg-cream rounded-xl p-4 flex flex-col justify-between border border-gray-100 shadow-sm">
+              <div>
+                <p className="font-bold text-navy">{s.name}</p>
+                <p className="text-xs text-gray-400">{s.location}</p>
+              </div>
+              <div className="mt-4">
+                <select
+                  value={s.tbOverride || "NONE"}
+                  onChange={(e) => handleStoreOverrideChange(s.id, e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm text-navy focus:outline-none focus:border-navy"
+                >
+                  <option value="NONE">No Override (NONE)</option>
+                  <option value="ENABLED">Force Eligible (ENABLED)</option>
+                  <option value="DISABLED">Force Ineligible (DISABLED)</option>
+                </select>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Category Default Bulk Toggle */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
+        <h3 className="font-bold text-navy text-lg">Bulk Category Toggles</h3>
+        <p className="text-xs text-gray-400">Perform a bulk action to set the Try & Buy flag on all products in a category.</p>
+        <div className="flex flex-wrap gap-4">
+          {categories.map(cat => (
+            <div key={cat} className="flex-1 min-w-[200px] border border-gray-100 rounded-xl p-4 bg-cream flex flex-col justify-between">
+              <p className="font-bold text-navy mb-3">{cat}</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleBulkCategory(cat, true)}
+                  className="flex-1 bg-navy text-yellow text-xs font-bold py-2 rounded-lg hover:brightness-110 transition"
+                >
+                  Enable All
+                </button>
+                <button
+                  onClick={() => handleBulkCategory(cat, false)}
+                  className="flex-1 border border-gray-200 text-gray-500 text-xs font-bold py-2 rounded-lg hover:bg-gray-50 transition"
+                >
+                  Disable All
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Products Toggle Table */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h3 className="font-bold text-navy text-lg">Product-Level Toggles</h3>
+          <div className="flex gap-2 min-w-[300px] flex-1 max-w-md">
+            <input
+              type="text"
+              placeholder="Search products..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy placeholder:text-gray-300 focus:outline-none"
+            />
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="border border-gray-200 rounded-xl px-2.5 py-2 text-sm text-navy focus:outline-none"
+            >
+              <option value="">All Categories</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <table className="w-full text-sm mt-4">
+          <thead className="bg-cream border-b border-gray-100">
+            <tr>
+              <Th>Product</Th>
+              <Th>Category</Th>
+              <Th>Store</Th>
+              <Th>Computed Status</Th>
+              <Th>Toggle Product Override</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredProducts.map(p => {
+              const res = resolveEligibility(p, p.store?.tbOverride);
+              return (
+                <tr key={p.id} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                  <td className="px-4 py-3 font-semibold text-navy">{p.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{p.category}</td>
+                  <td className="px-4 py-3 text-gray-500">{p.store?.name}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${res.eligible ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
+                      {res.eligible ? "Eligible" : "Ineligible"}
+                    </span>
+                    <span className="text-[10px] text-gray-400 ml-2 block italic">({res.reason})</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => handleProductToggle(p.id, p.tbEligible)}
+                      className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition ${
+                        p.tbEligible === true
+                          ? "bg-emerald-500 text-white border-emerald-500"
+                          : p.tbEligible === false
+                          ? "bg-red-500 text-white border-red-500"
+                          : "bg-gray-100 text-gray-600 border-gray-200"
+                      }`}
+                    >
+                      {p.tbEligible === true ? "Force Eligible" : p.tbEligible === false ? "Force Ineligible" : "Category Default"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── AdminPanel shell ──────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1259,6 +1360,7 @@ const TABS = [
   { key: "customers",  label: "Customers" },
   { key: "stores",     label: "Stores" },
   { key: "tnb",        label: "T&B Requests" },
+  { key: "trybuy",     label: "Try & Buy Toggles" },
 ];
 
 export default function AdminPanel() {
@@ -1303,6 +1405,7 @@ export default function AdminPanel() {
         <Stores onFilterOrders={(storeId) => drillToOrders({ storeId })} />
       )}
       {tab === "tnb"       && <TnbManagement />}
+      {tab === "trybuy"    && <TryBuyToggles />}
     </div>
   );
 }
