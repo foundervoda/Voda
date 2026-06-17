@@ -35,6 +35,10 @@ const enrichOrderWithFees = (order, customerEmail) => {
   // Clean up delivery address for display
   const displayAddress = order.deliveryAddr ? order.deliveryAddr.split(" | ")[0] : "";
 
+  const tryTimerRemainingMs = order.tryTimerEnd 
+    ? Math.max(0, new Date(order.tryTimerEnd).getTime() - Date.now()) 
+    : 0;
+
   return {
     ...order,
     deliveryAddr: displayAddress,
@@ -42,7 +46,8 @@ const enrichOrderWithFees = (order, customerEmail) => {
     isTryAndBuy,
     deliveryFee,
     tryAndBuyFee,
-    totalAmount: finalTotal
+    totalAmount: finalTotal,
+    tryTimerRemainingMs
   };
 };
 

@@ -10,6 +10,8 @@ import CheckoutScreen from "../screens/customer/CheckoutScreen";
 import OrderConfirmScreen from "../screens/customer/OrderConfirmScreen";
 import VodaGoldScreen from "../screens/customer/VodaGoldScreen";
 import TryBuyScreen from "../screens/customer/TryBuyScreen";
+import TrackOrderScreen from "../screens/customer/TrackOrderScreen";
+import OrderHistoryScreen from "../screens/customer/OrderHistoryScreen";
 import RunnerNavigator from "./RunnerNavigator";
 import RiderNavigator from "./RiderNavigator";
 import { SocketProvider } from "../api/SocketContext";
@@ -86,6 +88,20 @@ export default function RootNavigator() {
         <Stack.Screen 
           name="TryBuy" 
           component={TryBuyScreen} 
+          options={{ 
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="TrackOrder" 
+          component={TrackOrderScreen} 
+          options={{ 
+            headerShown: false,
+          }} 
+        />
+        <Stack.Screen 
+          name="OrderHistory" 
+          component={OrderHistoryScreen} 
           options={{ 
             headerShown: false,
           }} 

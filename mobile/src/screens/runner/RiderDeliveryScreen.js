@@ -14,7 +14,7 @@ export default function RiderDeliveryScreen({ route, navigation }) {
   const [timeLeft, setTimeLeft] = useState("");
 
   const isTryBuy = order.deliveryAddr?.includes(" | Try & Buy") || order.isTryAndBuy;
-  const showTimer = order.status === "DELIVERED" && order.tryTimerEnd && new Date(order.tryTimerEnd) > new Date();
+  const showTimer = order.status === "DELIVERED" && order.tryTimerRemainingMs > 0;
 
   // Socket listener for real-time status updates (e.g. customer finalizes keeps)
   useEffect(() => {
@@ -37,13 +37,14 @@ export default function RiderDeliveryScreen({ route, navigation }) {
 
   // Synchronized timer countdown
   useEffect(() => {
-    if (!showTimer || !order.tryTimerEnd) return;
+    if (!showTimer || !order.tryTimerRemainingMs) return;
 
-    const endTime = new Date(order.tryTimerEnd).getTime();
+    const startMs = Date.now();
+    const remainingMs = order.tryTimerRemainingMs;
 
     const interval = setInterval(() => {
-      const now = Date.now();
-      const diff = endTime - now;
+      const elapsed = Date.now() - startMs;
+      const diff = remainingMs - elapsed;
 
       if (diff <= 0) {
         clearInterval(interval);
@@ -61,7 +62,46 @@ export default function RiderDeliveryScreen({ route, navigation }) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [order.tryTimerEnd, showTimer]);
+  }, [order.tryTimerRemainingMs, showTimer]);
+
+  // Live GPS simulation relay during delivery transit
+  useEffect(() => {
+    if (order.status !== "OUT_FOR_DELIVERY" || !socket) return;
+
+    const storeLat = 12.9716;
+    const storeLng = 77.5946;
+    const custLat = 12.9810;
+    const custLng = 77.6030;
+
+    let steps = 0;
+    const totalSteps = 20;
+
+    // Immediately send the first coordinate
+    socket.emit("rider_location", {
+      orderId: order.id,
+      lat: storeLat,
+      lng: storeLng,
+    });
+
+    const interval = setInterval(() => {
+      steps++;
+      const ratio = Math.min(steps / totalSteps, 1);
+      const currentLat = storeLat + (custLat - storeLat) * ratio;
+      const currentLng = storeLng + (custLng - storeLng) * ratio;
+
+      socket.emit("rider_location", {
+        orderId: order.id,
+        lat: currentLat,
+        lng: currentLng,
+      });
+
+      if (steps >= totalSteps) {
+        clearInterval(interval);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [order.status, order.id, socket]);
 
   const markArrived = async () => {
     setLoading(true);

@@ -70,15 +70,18 @@ const getStatusColor = (status) => {
 function ActiveOrderCard({ order, navigation, onRefresh }) {
   const [timeLeft, setTimeLeft] = useState("");
   const isTryBuy = order.isTryAndBuy;
-  const showTimer = order.status === "DELIVERED" && order.tryTimerEnd && new Date(order.tryTimerEnd) > new Date();
+  const showTimer = order.status === "DELIVERED" && order.tryTimerRemainingMs > 0;
+  
+  const statusColor = getStatusColor(order.status);
 
   useEffect(() => {
-    if (!showTimer || !order.tryTimerEnd) return;
-    const endTime = new Date(order.tryTimerEnd).getTime();
+    if (!showTimer || !order.tryTimerRemainingMs) return;
+    const startMs = Date.now();
+    const remainingMs = order.tryTimerRemainingMs;
 
     const interval = setInterval(() => {
-      const now = Date.now();
-      const diff = endTime - now;
+      const elapsed = Date.now() - startMs;
+      const diff = remainingMs - elapsed;
       if (diff <= 0) {
         clearInterval(interval);
         setTimeLeft("00:00");
@@ -92,7 +95,7 @@ function ActiveOrderCard({ order, navigation, onRefresh }) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [order.tryTimerEnd, showTimer]);
+  }, [order.tryTimerRemainingMs, showTimer]);
 
   const getStatusMessage = (status) => {
     switch (status) {
@@ -112,11 +115,15 @@ function ActiveOrderCard({ order, navigation, onRefresh }) {
       <View style={s.activeCardHeader}>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <View style={s.pulseContainer}>
-            <View style={s.pulseDot} />
+            <View style={[s.pulseDot, { backgroundColor: statusColor.text }]} />
           </View>
-          <Text style={s.activeCardLabel}>Active Delivery Tracking</Text>
+          <Text style={s.activeCardLabel}>Active Tracking</Text>
         </View>
-        <Text style={s.activeOrderId}>#{order.id.slice(0, 8).toUpperCase()}</Text>
+        <View style={[s.statusPill, { backgroundColor: statusColor.bg }]}>
+          <Text style={[s.statusPillText, { color: statusColor.text, textTransform: "uppercase" }]}>
+            {order.status.replace(/_/g, " ")}
+          </Text>
+        </View>
       </View>
 
       <Text style={s.activeStatusMsg}>{getStatusMessage(order.status)}</Text>
@@ -147,10 +154,21 @@ function ActiveOrderCard({ order, navigation, onRefresh }) {
         </View>
       )}
 
+      {(order.status === "OUT_FOR_DELIVERY" || order.status === "ARRIVED") && (
+        <Pressable 
+          style={s.mapTrackBtn}
+          onPress={() => navigation.navigate("TrackOrder", { order })}
+        >
+          <Ionicons name="map" size={16} color="#012a62" style={{ marginRight: 6 }} />
+          <Text style={s.mapTrackBtnText}>Track Order on Map</Text>
+        </Pressable>
+      )}
+
       <View style={s.activeCardFooter}>
         <Text style={s.activeAddress} numberOfLines={1}>
           Delivering to: {order.deliveryAddr}
         </Text>
+        <Text style={s.activeFooterOrderId}>#{order.id.slice(0, 8).toUpperCase()}</Text>
         <Pressable onPress={onRefresh} style={s.activeRefreshBtn}>
           <Ionicons name="refresh" size={14} color="#012a62" />
         </Pressable>
@@ -168,6 +186,14 @@ export default function ProfileScreen({ navigation }) {
   const [phone, setPhone] = useState(user?.phone || "");
   const [address, setLocalAddress] = useState(savedAddress || "");
   const [password, setPassword] = useState("");
+
+  // Sync inputs with the auth store user state (e.g. standard/gold downgrades & updates)
+  useEffect(() => {
+    if (user) {
+      setEmail(user.email || "");
+      setPhone(user.phone || "");
+    }
+  }, [user]);
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -201,7 +227,14 @@ export default function ProfileScreen({ navigation }) {
     (o) =>
       o.status !== "RETURNED" &&
       o.status !== "REFUNDED" &&
-      (o.status !== "DELIVERED" || (o.tryTimerEnd && new Date(o.tryTimerEnd) > new Date()))
+      (o.status !== "DELIVERED" || (o.tryTimerRemainingMs && o.tryTimerRemainingMs > 0))
+  );
+
+  const completedOrders = orders.filter(
+    (o) =>
+      o.status === "RETURNED" ||
+      o.status === "REFUNDED" ||
+      (o.status === "DELIVERED" && (!o.tryTimerRemainingMs || o.tryTimerRemainingMs <= 0))
   );
 
   useEffect(() => {
@@ -314,12 +347,14 @@ export default function ProfileScreen({ navigation }) {
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         {/* Profile Avatar Card */}
         <View style={s.avatarCard}>
-          <View style={s.avatarCircle}>
+          <View style={[s.avatarCircle, isGoldSubscriber && s.avatarCircleGold]}>
             <Text style={s.avatarText}>{initials}</Text>
           </View>
           <Text style={s.userEmail}>{user?.email}</Text>
-          <View style={s.roleBadge}>
-            <Text style={s.roleText}>{user?.role || "Customer"}</Text>
+          <View style={[s.roleBadge, isGoldSubscriber && s.roleBadgeGold]}>
+            <Text style={[s.roleText, isGoldSubscriber && s.roleTextGold]}>
+              {isGoldSubscriber ? "Voda Gold VIP" : (user?.role || "Customer")}
+            </Text>
           </View>
         </View>
 
@@ -430,16 +465,18 @@ export default function ProfileScreen({ navigation }) {
           </Pressable>
         </View>
 
-        {ordersLoading && orders.length === 0 ? (
+        {ordersLoading && completedOrders.length === 0 ? (
           <ActivityIndicator color="#012a62" style={{ marginVertical: 20 }} />
-        ) : orders.length === 0 ? (
+        ) : completedOrders.length === 0 ? (
           <View style={s.emptyOrdersCard}>
             <Ionicons name="receipt-outline" size={36} color="#012a6240" style={{ marginBottom: 8 }} />
             <Text style={s.emptyOrdersText}>No past orders found.</Text>
           </View>
         ) : (
           <View style={{ marginBottom: 16 }}>
-            {orders.map((order) => {
+            {/* Display only the most recent completed order */}
+            {(() => {
+              const order = completedOrders[0];
               const isExpanded = expandedOrderId === order.id;
               const statusColors = getStatusColor(order.status);
               const totalItemsCount = order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
@@ -550,7 +587,23 @@ export default function ProfileScreen({ navigation }) {
                   )}
                 </Pressable>
               );
-            })}
+            })()}
+
+            {/* View All Orders Button */}
+            {completedOrders.length > 1 && (
+              <Pressable
+                style={({ pressed }) => [
+                  s.viewAllOrdersBtn,
+                  pressed && s.viewAllOrdersBtnPressed,
+                ]}
+                onPress={() => navigation.navigate("OrderHistory", { orders: completedOrders })}
+              >
+                <Text style={s.viewAllOrdersBtnText}>
+                  View All Orders ({completedOrders.length})
+                </Text>
+                <Ionicons name="arrow-forward" size={15} color="#012a62" />
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -633,6 +686,18 @@ const s = StyleSheet.create({
     color: "#012a62",
     textTransform: "uppercase",
     letterSpacing: 0.5,
+  },
+  avatarCircleGold: {
+    borderColor: "#fdde59",
+    borderWidth: 2,
+  },
+  roleBadgeGold: {
+    backgroundColor: "#fdde5940",
+    borderColor: "#fdde59",
+    borderWidth: 1.5,
+  },
+  roleTextGold: {
+    color: "#012a62",
   },
   formCard: {
     backgroundColor: "#fffef5",
@@ -1069,6 +1134,22 @@ const s = StyleSheet.create({
     fontWeight: "900",
     color: "#012a62",
   },
+  mapTrackBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fdde59",
+    borderColor: "#012a62",
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  mapTrackBtnText: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: "#012a62",
+  },
   activeCardFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1077,12 +1158,44 @@ const s = StyleSheet.create({
     borderTopColor: "#012a6208",
     paddingTop: 12,
   },
+  activeFooterOrderId: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#012a6250",
+    marginRight: 12,
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+  },
   activeAddress: {
     fontSize: 12,
     color: "#012a6260",
     fontWeight: "600",
     flex: 1,
     marginRight: 10,
+  },
+  viewAllOrdersBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(1, 42, 98, 0.1)",
+    borderWidth: 1.5,
+    borderRadius: 14,
+    paddingVertical: 12,
+    marginTop: 12,
+    shadowColor: "#012a62",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  viewAllOrdersBtnPressed: {
+    backgroundColor: "rgba(1, 42, 98, 0.05)",
+  },
+  viewAllOrdersBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#012a62",
+    marginRight: 6,
   },
   activeRefreshBtn: {
     width: 24,

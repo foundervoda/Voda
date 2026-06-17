@@ -19,7 +19,7 @@ router.get(
     const orders = await prisma.order.findMany({
       where: { status: "PENDING" },
       include: ORDER_INCLUDE,
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
     });
     res.json({ data: { orders }, error: null });
   })

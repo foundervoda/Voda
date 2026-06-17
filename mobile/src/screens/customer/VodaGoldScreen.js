@@ -45,7 +45,7 @@ function GoldBenefitsList() {
       {benefits.map((b, i) => (
         <View key={i} style={s.benefitCard}>
           <View style={s.iconContainer}>
-            <Ionicons name={b.icon} size={20} color="#fdde59" />
+            <Ionicons name={b.icon} size={20} color="#012a62" />
           </View>
           <View style={s.benefitTextContainer}>
             <Text style={s.benefitTitle}>{b.title}</Text>
@@ -103,8 +103,8 @@ export default function VodaGoldScreen({ navigation }) {
   };
 
   return (
-    <LinearGradient colors={["#011530", "#000814"]} style={s.root}>
-      <StatusBar barStyle="light-content" />
+    <LinearGradient colors={["#fdf9ea", "#ffffff"]} style={s.root}>
+      <StatusBar barStyle="dark-content" />
       
       {/* Header Back Button */}
       <View style={[s.headerNav, { paddingTop: Math.max(insets.top, 12) }]}>
@@ -113,7 +113,7 @@ export default function VodaGoldScreen({ navigation }) {
           onPress={() => navigation.goBack()} 
           hitSlop={12}
         >
-          <Ionicons name="arrow-back" size={22} color="#ffffff" />
+          <Ionicons name="arrow-back" size={22} color="#012a62" />
         </Pressable>
         <Text style={s.headerNavTitle}>Voda Gold</Text>
         <View style={{ width: 40 }} />
@@ -140,12 +140,9 @@ export default function VodaGoldScreen({ navigation }) {
           <Text style={s.heroSub}>The Ultimate Mall Delivery Experience</Text>
 
           {isGold ? (
-            <LinearGradient
-              colors={["rgba(22, 163, 74, 0.15)", "rgba(22, 163, 74, 0.05)"]}
-              style={s.statusPill}
-            >
+            <View style={s.statusPill}>
               <Text style={s.statusText}>ACTIVE MEMBER</Text>
-            </LinearGradient>
+            </View>
           ) : (
             <View style={s.priceTagContainer}>
               <Text style={s.priceTag}>Just ₹199 / month</Text>
@@ -155,16 +152,16 @@ export default function VodaGoldScreen({ navigation }) {
 
         <View style={s.body}>
           {isGold ? (
-            /* Subscriber view info card (Luxury Gold Pass design) */
+            /* Subscriber view info card (Luxury Dark VIP Pass design) */
             <LinearGradient
-              colors={["#ffe681", "#d4af37"]}
+              colors={["#012a62", "#001e47"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={s.infoCardGold}
             >
               <View style={s.infoCardHeader}>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Ionicons name="sparkles" size={16} color="#001e47" style={{ marginRight: 6 }} />
+                  <Ionicons name="sparkles" size={16} color="#fdde59" style={{ marginRight: 6 }} />
                   <Text style={s.infoCardHeaderTitle}>VODA GOLD VIP PASS</Text>
                 </View>
                 <Text style={s.infoCardHeaderStatus}>ACTIVE</Text>
@@ -184,8 +181,8 @@ export default function VodaGoldScreen({ navigation }) {
                 <View style={s.infoCardRow}>
                   <Text style={s.infoCardLabel}>BILLING STATUS</Text>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Ionicons name="checkmark-circle" size={14} color="#15803d" style={{ marginRight: 4 }} />
-                    <Text style={[s.infoCardValue, { color: "#15803d" }]}>Active via Voda Pay</Text>
+                    <Ionicons name="checkmark-circle" size={14} color="#22c55e" style={{ marginRight: 4 }} />
+                    <Text style={[s.infoCardValue, { color: "#22c55e" }]}>Active via Voda Pay</Text>
                   </View>
                 </View>
               </View>
@@ -208,7 +205,7 @@ export default function VodaGoldScreen({ navigation }) {
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#ffffff" />
+                <ActivityIndicator color="#012a62" />
               ) : (
                 <Text style={s.ctaTextDowngrade}>Cancel Membership</Text>
               )}
@@ -265,19 +262,19 @@ const s = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "rgba(1, 42, 98, 0.05)",
+    borderColor: "rgba(1, 42, 98, 0.1)",
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
   backBtnPressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.16)",
+    backgroundColor: "rgba(1, 42, 98, 0.12)",
   },
   headerNavTitle: {
     fontSize: 16,
     fontWeight: "800",
-    color: "#ffffff",
+    color: "#012a62",
     textTransform: "uppercase",
     letterSpacing: 1.5,
   },
@@ -291,21 +288,21 @@ const s = StyleSheet.create({
     width: 90,
     height: 90,
     borderRadius: 45,
-    backgroundColor: "rgba(253, 222, 89, 0.08)",
-    borderColor: "rgba(253, 222, 89, 0.15)",
+    backgroundColor: "rgba(253, 222, 89, 0.12)",
+    borderColor: "rgba(253, 222, 89, 0.25)",
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
     ...Platform.select({
       ios: {
-        shadowColor: "#fdde59",
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.25,
-        shadowRadius: 16,
+        shadowColor: "#d4af37",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
       },
       android: {
-        elevation: 8,
+        elevation: 4,
       },
     }),
   },
@@ -319,7 +316,7 @@ const s = StyleSheet.create({
   heroTitle: {
     fontSize: 32,
     fontWeight: "900",
-    color: "#fdde59",
+    color: "#012a62",
     letterSpacing: 3,
     marginBottom: 6,
     textAlign: "center",
@@ -327,14 +324,14 @@ const s = StyleSheet.create({
   heroSub: {
     fontSize: 14,
     fontWeight: "600",
-    color: "rgba(255, 255, 255, 0.75)",
+    color: "rgba(1, 42, 98, 0.7)",
     textAlign: "center",
     marginBottom: 18,
   },
   priceTagContainer: {
     borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "rgba(1, 42, 98, 0.04)",
+    borderColor: "rgba(1, 42, 98, 0.08)",
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 6,
@@ -342,7 +339,7 @@ const s = StyleSheet.create({
   priceTag: {
     fontSize: 13,
     fontWeight: "800",
-    color: "#fdde59",
+    color: "#012a62",
     letterSpacing: 0.5,
   },
   statusPill: {
@@ -353,7 +350,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
   },
   statusText: {
-    color: "#22c55e",
+    color: "#16a34a",
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 1.2,
@@ -367,13 +364,13 @@ const s = StyleSheet.create({
     marginBottom: 28,
     ...Platform.select({
       ios: {
-        shadowColor: "#d4af37",
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.2,
-        shadowRadius: 20,
+        shadowColor: "#012a62",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
       },
       android: {
-        elevation: 6,
+        elevation: 4,
       },
     }),
   },
@@ -385,14 +382,14 @@ const s = StyleSheet.create({
   infoCardHeaderTitle: {
     fontSize: 12,
     fontWeight: "900",
-    color: "#001e47",
+    color: "#fdde59",
     letterSpacing: 1.5,
   },
   infoCardHeaderStatus: {
     fontSize: 10,
     fontWeight: "900",
-    color: "#15803d",
-    backgroundColor: "rgba(21, 128, 61, 0.12)",
+    color: "#22c55e",
+    backgroundColor: "rgba(34, 197, 94, 0.15)",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
@@ -400,7 +397,7 @@ const s = StyleSheet.create({
   },
   infoCardDivider: {
     height: 1,
-    backgroundColor: "rgba(0, 30, 71, 0.15)",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     marginVertical: 14,
   },
   infoCardBody: {
@@ -413,19 +410,19 @@ const s = StyleSheet.create({
   },
   infoCardLabel: {
     fontSize: 10,
-    color: "rgba(0, 30, 71, 0.6)",
+    color: "rgba(255, 255, 255, 0.6)",
     fontWeight: "800",
     letterSpacing: 0.8,
   },
   infoCardValue: {
     fontSize: 13,
-    color: "#001e47",
+    color: "#ffffff",
     fontWeight: "800",
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: "800",
-    color: "rgba(255, 255, 255, 0.6)",
+    color: "rgba(1, 42, 98, 0.5)",
     marginBottom: 16,
     textTransform: "uppercase",
     letterSpacing: 1.5,
@@ -437,18 +434,29 @@ const s = StyleSheet.create({
   benefitCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
-    borderColor: "rgba(255, 255, 255, 0.05)",
+    backgroundColor: "#ffffff",
+    borderColor: "rgba(1, 42, 98, 0.06)",
     borderWidth: 1,
     borderRadius: 18,
     padding: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#012a62",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.02,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
   },
   iconContainer: {
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: "rgba(253, 222, 89, 0.08)",
-    borderColor: "rgba(253, 222, 89, 0.15)",
+    backgroundColor: "rgba(253, 222, 89, 0.15)",
+    borderColor: "rgba(253, 222, 89, 0.3)",
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -460,12 +468,12 @@ const s = StyleSheet.create({
   benefitTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#ffffff",
+    color: "#012a62",
     marginBottom: 3,
   },
   benefitDesc: {
     fontSize: 13,
-    color: "rgba(255, 255, 255, 0.6)",
+    color: "rgba(1, 42, 98, 0.6)",
     lineHeight: 18,
     fontWeight: "500",
   },
@@ -475,7 +483,7 @@ const s = StyleSheet.create({
     marginTop: 8,
     ...Platform.select({
       ios: {
-        shadowColor: "#fdde59",
+        shadowColor: "#d4af37",
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.3,
         shadowRadius: 14,
@@ -494,8 +502,8 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   ctaBtnDowngrade: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.1)",
+    backgroundColor: "rgba(239, 68, 68, 0.08)",
+    borderColor: "rgba(239, 68, 68, 0.2)",
     borderWidth: 1.5,
     borderRadius: 18,
     paddingVertical: 16,
@@ -504,7 +512,7 @@ const s = StyleSheet.create({
     marginTop: 8,
   },
   ctaBtnDowngradePressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    backgroundColor: "rgba(239, 68, 68, 0.18)",
   },
   ctaText: {
     color: "#001838",
@@ -513,7 +521,7 @@ const s = StyleSheet.create({
     letterSpacing: 1,
   },
   ctaTextDowngrade: {
-    color: "rgba(255, 255, 255, 0.5)",
+    color: "#dc2626",
     fontSize: 15,
     fontWeight: "700",
   },
@@ -522,7 +530,7 @@ const s = StyleSheet.create({
   },
   termsText: {
     fontSize: 11,
-    color: "rgba(255, 255, 255, 0.35)",
+    color: "rgba(1, 42, 98, 0.4)",
     textAlign: "center",
     marginTop: 16,
     lineHeight: 15,

@@ -21,7 +21,7 @@ router.get(
     const orders = await prisma.order.findMany({
       where: { status: "HANDED_TO_RIDER", riderId: null },
       include: ORDER_INCLUDE,
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
     });
     const enriched = orders.map((o) => enrichOrderWithFees(o, o.customer?.email));
     res.json({ data: { orders: enriched }, error: null });
