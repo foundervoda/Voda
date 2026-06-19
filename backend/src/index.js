@@ -11,6 +11,7 @@ const runnerRoutes = require("./routes/runner");
 const riderRoutes  = require("./routes/rider");
 const adminRoutes  = require("./routes/admin");
 const tnbRoutes    = require("./routes/tnb");
+const storeRoutes  = require("./routes/store");
 const { errorHandler } = require("./middleware/errorHandler");
 const { registerSocketHandlers } = require("./sockets");
 
@@ -29,7 +30,7 @@ app.get("/health", (req, res) => res.json({ data: { status: "ok" }, error: null 
 app.use("/api/auth", authRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/products", productRoutes);
-// TODO: app.use("/api/store", storeRoutes);
+app.use("/api/store", storeRoutes);
 
 if (process.env.NODE_ENV !== "production") {
   const devRoutes = require("./routes/dev");

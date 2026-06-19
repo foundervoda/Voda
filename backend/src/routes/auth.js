@@ -18,7 +18,7 @@ const toPublicUser = ({ id, email, phone, role, storeId, createdAt }) => ({ id, 
 router.post(
   "/register",
   asyncHandler(async (req, res) => {
-    const { email, password, phone, role } = req.body;
+    const { email, password, phone, role, storeId } = req.body;
 
     if (!email || !password || !phone || !role) {
       return res.status(400).json({ data: null, error: { message: "email, password, phone and role are required", code: "VALIDATION_ERROR" } });
@@ -31,7 +31,7 @@ router.post(
 
     const password_hash = await bcrypt.hash(password, SALT_ROUNDS);
     const user = await prisma.user.create({
-      data: { email, phone, role, password: password_hash },
+      data: { email, phone, role, password: password_hash, ...(storeId && { storeId }) },
     });
 
     res.status(201).json({ data: { user: toPublicUser(user), token: signToken(user) }, error: null });

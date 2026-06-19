@@ -13,7 +13,6 @@ import TryBuyScreen from "../screens/customer/TryBuyScreen";
 import TrackOrderScreen from "../screens/customer/TrackOrderScreen";
 import OrderHistoryScreen from "../screens/customer/OrderHistoryScreen";
 import RunnerNavigator from "./RunnerNavigator";
-import RiderNavigator from "./RiderNavigator";
 import { SocketProvider } from "../api/SocketContext";
 
 const Stack = createNativeStackNavigator();
@@ -38,8 +37,6 @@ export default function RootNavigator() {
     <SocketProvider>
       {user.role === "RUNNER" || user.role === "RIDER" ? (
         <RunnerNavigator />
-      ) : user.role === "RIDER" ? (
-        <RiderNavigator />
       ) : (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="CustomerTabs" component={CustomerTabs} />

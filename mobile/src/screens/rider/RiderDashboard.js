@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, RefreshControl, SectionList } from "react-native";
+import { View, Text, Pressable, StyleSheet, RefreshControl, SectionList, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { useFocusEffect } from "@react-navigation/native";
@@ -7,19 +7,16 @@ import { api } from "../../api/client";
 import { useSocket } from "../../api/SocketContext";
 import { useAuthStore } from "../../store/useAuthStore";
 
-const STATUS_SCREEN = {
-  OUT_FOR_DELIVERY: "RiderDelivery",
-  ARRIVED:          "RiderArrived",
-  DELIVERED:        "RiderTnbTimer",
-  RETURNING:        "RiderReturn",
-};
-
 export default function RiderDashboard({ navigation }) {
   const insets = useSafeAreaInsets();
   const socket = useSocket();
   const { logout } = useAuthStore();
 
-  const { data: available = [], refetch: refetchAvailable, isFetching } = useQuery({
+  const {
+    data: available = [],
+    refetch: refetchAvailable,
+    isFetching: loadingAvailable,
+  } = useQuery({
     queryKey: ["rider-available"],
     queryFn: () => api.get("/rider/orders").then((r) => r.data.data.orders),
   });
@@ -29,18 +26,16 @@ export default function RiderDashboard({ navigation }) {
     queryFn: () => api.get("/rider/orders/mine").then((r) => r.data.data.orders),
   });
 
-  const { data: history = [], refetch: refetchHistory } = useQuery({
-    queryKey: ["rider-history"],
-    queryFn: () => api.get("/rider/orders/history").then((r) => r.data.data.orders),
-  });
-
   const refetchAll = useCallback(() => {
     refetchAvailable();
     refetchMine();
-    refetchHistory();
-  }, [refetchAvailable, refetchMine, refetchHistory]);
+  }, [refetchAvailable, refetchMine]);
 
-  useFocusEffect(useCallback(() => { refetchAll(); }, [refetchAll]));
+  useFocusEffect(
+    useCallback(() => {
+      refetchAll();
+    }, [refetchAll])
+  );
 
   const activeOrder = mine[0] ?? null;
 
@@ -51,53 +46,61 @@ export default function RiderDashboard({ navigation }) {
 
   useEffect(() => {
     if (!socket) return;
+    socket.on("new_order", refetchAll);
     socket.on("order_update", refetchAll);
-    return () => { socket.off("order_update", refetchAll); };
+    return () => {
+      socket.off("new_order", refetchAll);
+      socket.off("order_update", refetchAll);
+    };
   }, [socket, refetchAll]);
 
-  function resumeActive() {
-    if (!activeOrder) return;
-    const screen = STATUS_SCREEN[activeOrder.status];
-    if (!screen) return;
-    // RiderArrived needs the otp — rider will re-enter from the screen; pass null for otp
-    navigation.navigate(screen, { order: activeOrder, otp: null });
-  }
-
-  function statusLabel(status) {
-    switch (status) {
-      case "OUT_FOR_DELIVERY": return "En route to customer";
-      case "ARRIVED":          return "Arrived — awaiting OTP";
-      case "DELIVERED":        return "T&B timer running";
-      case "RETURNING":        return "Return in progress";
-      default:                 return status.replace(/_/g, " ");
+  const claimOrder = async (orderId) => {
+    try {
+      const { data } = await api.post(`/rider/orders/${orderId}/assign`);
+      refetchAll();
+      navigation.navigate("RiderDelivery", { order: data.data.order });
+    } catch (err) {
+      alert(err.response?.data?.error?.message ?? "Could not accept order");
     }
-  }
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Rider</Text>
-        <Pressable onPress={logout} hitSlop={8}>
-          <Text style={styles.logoutText}>Log out</Text>
-        </Pressable>
+        <Text style={styles.title}>Delivery Agent</Text>
+        <View style={styles.headerRight}>
+          <Pressable onPress={() => navigation.navigate("RiderHistory")} hitSlop={8} style={styles.historyBtn}>
+            <Text style={styles.historyBtnText}>History</Text>
+          </Pressable>
+          <Pressable onPress={logout} hitSlop={8}>
+            <Text style={styles.logoutText}>Log out</Text>
+          </Pressable>
+        </View>
       </View>
 
       {activeOrder && (
-        <Pressable style={styles.activeBanner} onPress={resumeActive}>
+        <Pressable
+          style={styles.activeBanner}
+          onPress={() => navigation.navigate("RiderDelivery", { order: activeOrder })}
+        >
           <Text style={styles.bannerLabel}>ACTIVE DELIVERY</Text>
-          <Text style={styles.bannerAddr} numberOfLines={1}>{activeOrder.deliveryAddr}</Text>
-          <Text style={styles.bannerStatus}>{statusLabel(activeOrder.status)} — tap to continue →</Text>
+          <Text style={styles.bannerAddr} numberOfLines={1}>
+            {activeOrder.deliveryAddr}
+          </Text>
+          <Text style={styles.bannerStatus}>
+            {activeOrder.status.replace(/_/g, " ")} — tap to continue →
+          </Text>
         </Pressable>
       )}
 
       <SectionList
         sections={[
-          { title: "Ready for Pickup", data: available },
-          { title: "Past Deliveries", data: history },
+          { title: "Available for Delivery", data: available },
+          { title: "My Deliveries", data: mine.filter((o) => o.id !== activeOrder?.id) },
         ]}
         keyExtractor={(o) => o.id}
         refreshControl={
-          <RefreshControl refreshing={isFetching} onRefresh={refetchAll} tintColor={S} />
+          <RefreshControl refreshing={loadingAvailable} onRefresh={refetchAll} tintColor="#012a62" />
         }
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
         stickySectionHeadersEnabled={false}
@@ -107,46 +110,39 @@ export default function RiderDashboard({ navigation }) {
         renderSectionFooter={({ section }) =>
           section.data.length === 0 ? (
             <Text style={styles.empty}>
-              {section.title === "Ready for Pickup"
-                ? "No orders ready for pickup"
-                : "No past deliveries yet"}
+              {section.title === "Available for Delivery"
+                ? "No packages waiting at handover right now"
+                : "No other delivery history active"}
             </Text>
           ) : null
         }
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         SectionSeparatorComponent={() => <View style={{ height: 8 }} />}
         renderItem={({ item, section }) => {
-          if (section.title === "Ready for Pickup") {
-            const store = item.items[0]?.product?.store?.name ?? "Store";
+          if (section.title === "Available for Delivery") {
             return (
-              <Pressable
-                style={styles.card}
-                onPress={() => navigation.navigate("RiderDelivery", { order: item })}
-              >
-                <Text style={styles.cardAddr} numberOfLines={1}>{item.deliveryAddr}</Text>
-                <Text style={styles.cardMeta}>
-                  {store} · {item.items.length} item{item.items.length !== 1 ? "s" : ""} ·{" "}
-                  {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              <Pressable style={styles.card} onPress={() => claimOrder(item.id)}>
+                <Text style={styles.cardAddr} numberOfLines={1}>
+                  {item.deliveryAddr}
                 </Text>
-                <View style={styles.cardItemList}>
-                  {item.items.map((i) => (
-                    <Text key={i.id} style={styles.cardItemText} numberOfLines={1}>
-                      {i.quantity}× {i.product.name} ({i.variant.size}{i.variant.color ? `, ${i.variant.color}` : ""})
-                    </Text>
-                  ))}
-                </View>
-                <Text style={styles.cardCta}>Accept Delivery →</Text>
+                <Text style={styles.cardMeta}>
+                  {item.items.length} item{item.items.length !== 1 ? "s" : ""} ·{" "}
+                  {item.isTryAndBuy ? "Try & Buy active" : "Standard Delivery"}
+                </Text>
+                <Text style={styles.cardCta}>Accept Delivery & Depart →</Text>
               </Pressable>
             );
           }
 
+          // Inactive active delivery row
           return (
             <View style={styles.historyRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.historyAddr} numberOfLines={1}>{item.deliveryAddr}</Text>
+                <Text style={styles.historyAddr} numberOfLines={1}>
+                  {item.deliveryAddr}
+                </Text>
                 <Text style={styles.historyMeta}>
-                  {item.items.length} item{item.items.length !== 1 ? "s" : ""} ·{" "}
-                  {new Date(item.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
+                  {item.items.length} items · {item.isTryAndBuy ? "T&B" : "Std"}
                 </Text>
               </View>
               <Text style={styles.historyStatus}>{item.status.replace(/_/g, " ")}</Text>
@@ -173,8 +169,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "#e8e0cc",
   },
-  title: { fontSize: 22, fontWeight: "700", color: S },
+  title: { fontSize: 20, fontWeight: "700", color: S },
   logoutText: { fontSize: 14, color: S, opacity: 0.45 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 14 },
+  historyBtn: {},
+  historyBtnText: { fontSize: 14, fontWeight: "600", color: S },
   activeBanner: {
     marginHorizontal: 16,
     marginTop: 14,
@@ -206,8 +205,6 @@ const styles = StyleSheet.create({
   },
   cardAddr: { fontSize: 15, fontWeight: "600", color: S, marginBottom: 3 },
   cardMeta: { fontSize: 12, color: "#888", marginBottom: 8 },
-  cardItemList: { marginBottom: 10 },
-  cardItemText: { fontSize: 13, color: S, marginBottom: 2 },
   cardCta: { fontSize: 13, fontWeight: "700", color: S, textAlign: "right" },
   empty: { textAlign: "center", color: "#aaa", marginTop: 16, marginBottom: 8, fontSize: 14 },
   historyRow: {
@@ -221,5 +218,5 @@ const styles = StyleSheet.create({
   },
   historyAddr: { fontSize: 14, fontWeight: "600", color: S, marginBottom: 2 },
   historyMeta: { fontSize: 12, color: "#888" },
-  historyStatus: { fontSize: 11, fontWeight: "700", color: S, opacity: 0.45, textAlign: "right", maxWidth: 110 },
+  historyStatus: { fontSize: 11, fontWeight: "700", color: S, opacity: 0.45, textAlign: "right" },
 });

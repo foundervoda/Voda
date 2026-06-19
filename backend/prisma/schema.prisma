@@ -1,13 +1,112 @@
-// Mall Delivery App — Prisma schema
-// Source of truth for the database. Run `npx prisma migrate dev` after any change.
-// See Voda Dev Handbook §09 (Data Models) for the reference design.
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  phone          String
+  role           Role
+  password       String
+  storeId        String?
+  createdAt      DateTime     @default(now())
+  customerOrders Order[]      @relation("CustomerOrders")
+  riderOrders    Order[]      @relation("RiderOrders")
+  runnerOrders   Order[]      @relation("RunnerOrders")
+  tnbRequests    TnbRequest[] @relation("TnbRequester")
+  tnbResolutions TnbRequest[] @relation("TnbResolver")
+  store          Store?       @relation(fields: [storeId], references: [id])
+}
+
+model Store {
+  id          String    @id @default(uuid())
+  name        String
+  location    String
+  createdAt   DateTime  @default(now())
+  tbOverride  String    @default("NONE")
+  tnbOverride Boolean?
+  products    Product[]
+  staff       User[]
+}
+
+model Product {
+  id                String       @id @default(uuid())
+  name              String
+  price             Decimal
+  images            String[]
+  category          String
+  trending          Boolean      @default(false)
+  storeId           String
+  tbEligible        Boolean?
+  tbRequest         String?
+  tryAndBuyEligible Boolean      @default(false)
+  orderItems        OrderItem[]
+  store             Store        @relation(fields: [storeId], references: [id])
+  tnbRequests       TnbRequest[]
+  variants          Variant[]
+}
+
+model Variant {
+  id         String      @id @default(uuid())
+  size       String
+  color      String?
+  stock      Int         @default(0)
+  productId  String
+  orderItems OrderItem[]
+  product    Product     @relation(fields: [productId], references: [id])
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  status       OrderStatus @default(PENDING)
+  deliveryAddr String
+  etaMinutes   Int
+  tryTimerEnd  DateTime?
+  customerId   String
+  runnerId     String?
+  riderId      String?
+  createdAt    DateTime    @default(now())
+  deliveryOtp  String?
+  customer     User        @relation("CustomerOrders", fields: [customerId], references: [id])
+  rider        User?       @relation("RiderOrders", fields: [riderId], references: [id])
+  runner       User?       @relation("RunnerOrders", fields: [runnerId], references: [id])
+  items        OrderItem[]
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  quantity  Int     @default(1)
+  orderId   String
+  productId String
+  variantId String
+  order     Order   @relation(fields: [orderId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+  variant   Variant @relation(fields: [variantId], references: [id])
+}
+
+model TnbCategoryDefault {
+  category  String   @id
+  eligible  Boolean
+  updatedAt DateTime @updatedAt
+}
+
+model TnbRequest {
+  id                String           @id @default(uuid())
+  requestedEligible Boolean
+  note              String?
+  status            TnbRequestStatus @default(PENDING)
+  productId         String
+  requestedById     String
+  resolvedById      String?
+  resolvedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  product           Product          @relation(fields: [productId], references: [id])
+  requestedBy       User             @relation("TnbRequester", fields: [requestedById], references: [id])
+  resolvedBy        User?            @relation("TnbResolver", fields: [resolvedById], references: [id])
 }
 
 enum Role {
@@ -35,127 +134,4 @@ enum OrderStatus {
   RETURNING
   RETURNED
   REFUNDED
-}
-
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  phone     String
-  role      Role
-  password  String // bcrypt hash
-
-  // Only set when role === STORE_STAFF
-  storeId   String?
-  store     Store?   @relation(fields: [storeId], references: [id])
-
-  customerOrders Order[] @relation("CustomerOrders")
-  runnerOrders   Order[] @relation("RunnerOrders")
-  riderOrders    Order[] @relation("RiderOrders")
-
-  tnbRequests    TnbRequest[] @relation("TnbRequester")
-  tnbResolutions TnbRequest[] @relation("TnbResolver")
-
-  createdAt DateTime @default(now())
-}
-
-model Store {
-  id          String    @id @default(uuid())
-  name        String
-  location    String
-  tnbOverride Boolean?  // null = no override; true = force all eligible; false = block all
-  tbOverride  String    @default("NONE") // NONE, ENABLED, DISABLED
-  products    Product[]
-  staff       User[]
-  createdAt   DateTime  @default(now())
-}
-
-model Product {
-  id                String      @id @default(uuid())
-  name              String
-  price             Decimal
-  images            String[]
-  category          String
-  trending          Boolean     @default(false)
-  tryAndBuyEligible Boolean     @default(false)
-  tbEligible        Boolean?   // Explicit eligibility flag
-  tbRequest         String?    // PENDING_ELIGIBLE, PENDING_INELIGIBLE, NONE
-
-  storeId   String
-  store     Store       @relation(fields: [storeId], references: [id])
-
-  variants   Variant[]
-  orderItems OrderItem[]
-  tnbRequests TnbRequest[]
-}
-
-model Variant {
-  id        String      @id @default(uuid())
-  size      String
-  color     String?
-  stock     Int         @default(0)
-
-  productId String
-  product   Product     @relation(fields: [productId], references: [id])
-
-  orderItems OrderItem[]
-}
-
-model Order {
-  id           String      @id @default(uuid())
-  status       OrderStatus @default(PENDING)
-  deliveryAddr String
-  etaMinutes   Int
-  deliveryOtp  String?   // 6-digit OTP generated on ARRIVED; cleared after verification
-  tryTimerEnd  DateTime? // set when rider marks ARRIVED
-
-  customerId   String
-  customer     User        @relation("CustomerOrders", fields: [customerId], references: [id])
-
-  runnerId     String? // assigned after PENDING
-  runner       User?       @relation("RunnerOrders", fields: [runnerId], references: [id])
-
-  riderId      String? // assigned after COLLECTED
-  rider        User?       @relation("RiderOrders", fields: [riderId], references: [id])
-
-  items        OrderItem[]
-  createdAt    DateTime    @default(now())
-}
-
-model OrderItem {
-  id        String  @id @default(uuid())
-  quantity  Int     @default(1)
-
-  orderId   String
-  order     Order   @relation(fields: [orderId], references: [id])
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-
-  variantId String
-  variant   Variant @relation(fields: [variantId], references: [id])
-}
-
-model TnbCategoryDefault {
-  category  String   @id
-  eligible  Boolean
-  updatedAt DateTime @updatedAt
-}
-
-model TnbRequest {
-  id                String           @id @default(uuid())
-  requestedEligible Boolean
-  note              String?
-  status            TnbRequestStatus @default(PENDING)
-
-  productId         String
-  product           Product          @relation(fields: [productId], references: [id])
-
-  requestedById     String
-  requestedBy       User             @relation("TnbRequester", fields: [requestedById], references: [id])
-
-  resolvedById      String?
-  resolvedBy        User?            @relation("TnbResolver", fields: [resolvedById], references: [id])
-  resolvedAt        DateTime?
-
-  createdAt         DateTime         @default(now())
 }

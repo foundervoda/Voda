@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { socket } from "../api/socket";
 import { fetchStoreOrders, fetchStoreOrdersExport } from "../api/orders";
+import { fetchStoreTbProducts, submitStoreTbRequest } from "../api/store";
 import OrderCard from "../components/OrderCard";
 import OrderModal from "../components/OrderModal";
 
@@ -233,7 +234,137 @@ const ListIcon = () => (
   </svg>
 );
 
+// ── Try & Buy product view for store managers ─────────────────────────────────
+
+const REQUEST_LABEL = {
+  PENDING_ELIGIBLE:   "Pending: Request Eligible",
+  PENDING_INELIGIBLE: "Pending: Request Ineligible",
+};
+
+function StoreTbTab() {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing]   = useState(null); // productId being submitted
+
+  const load = useCallback(() => {
+    setLoading(true);
+    fetchStoreTbProducts()
+      .then(setData)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const request = async (productId, requestType) => {
+    setActing(productId);
+    try {
+      const updated = await submitStoreTbRequest(productId, requestType);
+      setData((prev) => ({
+        ...prev,
+        products: prev.products.map((p) => p.id === productId ? { ...p, tbRequest: updated.tbRequest } : p),
+      }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setActing(null);
+    }
+  };
+
+  if (loading) return <div className="text-center py-20 text-gray-400">Loading…</div>;
+  if (!data)   return <div className="text-center py-20 text-red-500">Could not load products.</div>;
+
+  const storeOverrideActive = data.store?.tbOverride !== "NONE";
+
+  return (
+    <div className="space-y-5">
+      {storeOverrideActive && (
+        <div className="bg-yellow/20 border border-yellow/40 rounded-xl px-5 py-3 text-sm text-navy font-medium">
+          Admin has set a store-wide override:{" "}
+          <span className="font-bold">
+            {data.store.tbOverride === "ENABLED" ? "All products forced Eligible" : "All products forced Ineligible"}
+          </span>
+          . Individual product flags are ignored while this is active.
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-cream border-b border-gray-100">
+              <th className="text-left px-5 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Product</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Category</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">T&B Status</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Request</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.products.map((p) => {
+              const isPending = p.tbRequest && p.tbRequest !== "NONE";
+              const isActing  = acting === p.id;
+              return (
+                <tr key={p.id} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                  <td className="px-5 py-3 font-semibold text-navy">{p.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{p.category}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full
+                      ${p.effective ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
+                      {p.effective ? "Eligible" : "Not Eligible"}
+                    </span>
+                    <span className="text-[10px] text-gray-400 ml-2">({p.reason})</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {isPending ? (
+                      <span className="text-xs font-semibold text-yellow-700 bg-yellow/30 px-2.5 py-1 rounded-full">
+                        {REQUEST_LABEL[p.tbRequest] ?? p.tbRequest}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {isPending ? (
+                      <button
+                        onClick={() => request(p.id, null)}
+                        disabled={isActing}
+                        className="text-xs font-semibold text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition disabled:opacity-40"
+                      >
+                        {isActing ? "…" : "Cancel Request"}
+                      </button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => request(p.id, "PENDING_ELIGIBLE")}
+                          disabled={isActing || p.effective}
+                          className="text-xs font-bold bg-navy text-yellow px-3 py-1.5 rounded-lg hover:brightness-110 transition disabled:opacity-30"
+                        >
+                          {isActing ? "…" : "Request Eligible"}
+                        </button>
+                        <button
+                          onClick={() => request(p.id, "PENDING_INELIGIBLE")}
+                          disabled={isActing || !p.effective}
+                          className="text-xs font-bold border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition disabled:opacity-30"
+                        >
+                          {isActing ? "…" : "Request Ineligible"}
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── OrdersBoard ───────────────────────────────────────────────────────────────
+
 export default function OrdersBoard({ storeId }) {
+  const [activeTab, setActiveTab]    = useState("orders"); // "orders" | "trybuy"
   const [orders, setOrders]          = useState([]);
   const [filter, setFilter]          = useState("all");
   const [loading, setLoading]        = useState(true);
@@ -285,105 +416,110 @@ export default function OrdersBoard({ storeId }) {
       <audio ref={audioRef} src="/chime.mp3" preload="none" />
       {showExport && <ExportModal storeId={storeId} onClose={() => setShowExport(false)} />}
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between mb-5 gap-3">
-        {/* Filter tabs */}
-        <div className="flex gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`relative px-3 py-1.5 text-sm font-medium rounded-lg transition
-                ${filter === f.key ? "bg-navy text-cream" : "text-gray-500 hover:text-navy hover:bg-gray-50"}`}
-            >
-              {f.label}
-              {f.key === "PENDING" && pendingCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-yellow text-navy text-[10px] font-bold
-                                 w-4 h-4 rounded-full flex items-center justify-center leading-none">
-                  {pendingCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-400">{visible.length} order{visible.length !== 1 ? "s" : ""}</span>
-
+      {/* Top-level tabs */}
+      <div className="flex gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm w-fit mb-5">
+        {[{ key: "orders", label: "Orders" }, { key: "trybuy", label: "Try & Buy" }].map((t) => (
           <button
-            onClick={() => setShowExport(true)}
-            className="px-3 py-1.5 text-sm font-semibold bg-yellow text-navy rounded-lg hover:brightness-95 transition"
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition
+              ${activeTab === t.key ? "bg-navy text-cream" : "text-gray-500 hover:text-navy hover:bg-gray-50"}`}
           >
-            Export CSV
+            {t.label}
           </button>
-
-          {/* View toggle */}
-          <div className="flex gap-0.5 bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
-            <button
-              onClick={() => setView("grid")}
-              title="Card view"
-              className={`p-1.5 rounded-lg transition ${view === "grid" ? "bg-navy text-cream" : "text-gray-400 hover:text-navy"}`}
-            >
-              <GridIcon />
-            </button>
-            <button
-              onClick={() => setView("list")}
-              title="List view"
-              className={`p-1.5 rounded-lg transition ${view === "list" ? "bg-navy text-cream" : "text-gray-400 hover:text-navy"}`}
-            >
-              <ListIcon />
-            </button>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* States */}
-      {loading && <div className="text-center py-20 text-gray-400">Loading orders…</div>}
-      {error   && <div className="text-center py-20 text-red-500 font-medium">{error}</div>}
+      {activeTab === "trybuy" && <StoreTbTab />}
 
-      {!loading && !error && visible.length === 0 && (
-        <div className="text-center py-24 text-gray-400">
-          <p className="text-4xl mb-3">🛍</p>
-          <p className="font-medium">
-            {filter === "all" ? "No orders yet — waiting for your first customer" : "No orders in this category"}
-          </p>
-        </div>
-      )}
-
-      {/* Card grid */}
-      {!loading && !error && visible.length > 0 && view === "grid" && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((order) => (
-            <OrderCard key={order.id} order={order} onUpdated={handleUpdated} onClick={() => setSelected(order)} />
-          ))}
-        </div>
-      )}
-
-      {/* List view */}
-      {!loading && !error && visible.length > 0 && view === "list" && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-cream border-b border-gray-100">
-                <th className="text-left px-5 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Order</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Items</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Deliver To</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Time</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((order) => (
-                <OrderRow key={order.id} order={order} onClick={() => setSelected(order)} />
+      {activeTab === "orders" && (
+        <div>
+          {/* Toolbar */}
+          <div className="flex items-center justify-between mb-5 gap-3">
+            <div className="flex gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setFilter(f.key)}
+                  className={`relative px-3 py-1.5 text-sm font-medium rounded-lg transition
+                    ${filter === f.key ? "bg-navy text-cream" : "text-gray-500 hover:text-navy hover:bg-gray-50"}`}
+                >
+                  {f.label}
+                  {f.key === "PENDING" && pendingCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-yellow text-navy text-[10px] font-bold
+                                     w-4 h-4 rounded-full flex items-center justify-center leading-none">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-400">{visible.length} order{visible.length !== 1 ? "s" : ""}</span>
+              <button
+                onClick={() => setShowExport(true)}
+                className="px-3 py-1.5 text-sm font-semibold bg-yellow text-navy rounded-lg hover:brightness-95 transition"
+              >
+                Export CSV
+              </button>
+              <div className="flex gap-0.5 bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
+                <button onClick={() => setView("grid")} title="Card view"
+                  className={`p-1.5 rounded-lg transition ${view === "grid" ? "bg-navy text-cream" : "text-gray-400 hover:text-navy"}`}>
+                  <GridIcon />
+                </button>
+                <button onClick={() => setView("list")} title="List view"
+                  className={`p-1.5 rounded-lg transition ${view === "list" ? "bg-navy text-cream" : "text-gray-400 hover:text-navy"}`}>
+                  <ListIcon />
+                </button>
+              </div>
+            </div>
+          </div>
 
-      {/* Order detail modal */}
-      {selectedOrder && (
-        <OrderModal order={selectedOrder} onClose={() => setSelected(null)} />
+          {loading && <div className="text-center py-20 text-gray-400">Loading orders…</div>}
+          {error   && <div className="text-center py-20 text-red-500 font-medium">{error}</div>}
+
+          {!loading && !error && visible.length === 0 && (
+            <div className="text-center py-24 text-gray-400">
+              <p className="text-4xl mb-3">🛍</p>
+              <p className="font-medium">
+                {filter === "all" ? "No orders yet — waiting for your first customer" : "No orders in this category"}
+              </p>
+            </div>
+          )}
+
+          {!loading && !error && visible.length > 0 && view === "grid" && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {visible.map((order) => (
+                <OrderCard key={order.id} order={order} onUpdated={handleUpdated} onClick={() => setSelected(order)} />
+              ))}
+            </div>
+          )}
+
+          {!loading && !error && visible.length > 0 && view === "list" && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-cream border-b border-gray-100">
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Order</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Items</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Deliver To</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Time</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-navy/60 uppercase tracking-wide">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((order) => (
+                    <OrderRow key={order.id} order={order} onClick={() => setSelected(order)} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {selectedOrder && (
+            <OrderModal order={selectedOrder} onClose={() => setSelected(null)} />
+          )}
+        </div>
       )}
     </div>
   );

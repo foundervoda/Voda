@@ -26,16 +26,10 @@ export default function RunnerDashboard({ navigation }) {
     queryFn: () => api.get("/runner/orders/mine").then((r) => r.data.data.orders),
   });
 
-  const { data: history = [], refetch: refetchHistory } = useQuery({
-    queryKey: ["runner-history"],
-    queryFn: () => api.get("/runner/orders/history").then((r) => r.data.data.orders),
-  });
-
   const refetchAll = useCallback(() => {
     refetchAvailable();
     refetchMine();
-    refetchHistory();
-  }, [refetchAvailable, refetchMine, refetchHistory]);
+  }, [refetchAvailable, refetchMine]);
 
   useFocusEffect(useCallback(() => { refetchAll(); }, [refetchAll]));
 
@@ -60,9 +54,14 @@ export default function RunnerDashboard({ navigation }) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Runner</Text>
-        <Pressable onPress={logout} hitSlop={8}>
-          <Text style={styles.logoutText}>Log out</Text>
-        </Pressable>
+        <View style={styles.headerRight}>
+          <Pressable onPress={() => navigation.navigate("RunnerHistory")} hitSlop={8}>
+            <Text style={styles.historyBtnText}>History</Text>
+          </Pressable>
+          <Pressable onPress={logout} hitSlop={8}>
+            <Text style={styles.logoutText}>Log out</Text>
+          </Pressable>
+        </View>
       </View>
 
       {activeOrder && (
@@ -87,7 +86,6 @@ export default function RunnerDashboard({ navigation }) {
       <SectionList
         sections={[
           { title: "Available Orders", data: available },
-          { title: "Past Orders", data: history },
         ]}
         keyExtractor={(o) => o.id}
         refreshControl={
@@ -100,11 +98,7 @@ export default function RunnerDashboard({ navigation }) {
         )}
         renderSectionFooter={({ section }) =>
           section.data.length === 0 ? (
-            <Text style={styles.empty}>
-              {section.title === "Available Orders"
-                ? "No pending orders right now"
-                : "No past orders yet"}
-            </Text>
+            <Text style={styles.empty}>No pending orders right now</Text>
           ) : null
         }
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
@@ -130,21 +124,7 @@ export default function RunnerDashboard({ navigation }) {
             );
           }
 
-          // Past order row
-          return (
-            <View style={styles.historyRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.historyAddr} numberOfLines={1}>{item.deliveryAddr}</Text>
-                <Text style={styles.historyMeta}>
-                  {item.items.length} item{item.items.length !== 1 ? "s" : ""} ·{" "}
-                  {new Date(item.createdAt).toLocaleDateString([], { month: "short", day: "numeric" })}
-                </Text>
-              </View>
-              <Text style={styles.historyStatus}>
-                {item.status.replace(/_/g, " ")}
-              </Text>
-            </View>
-          );
+          return null;
         }}
       />
     </View>
@@ -168,6 +148,8 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 22, fontWeight: "700", color: S },
   logoutText: { fontSize: 14, color: S, opacity: 0.45 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 14 },
+  historyBtnText: { fontSize: 14, fontWeight: "600", color: S },
   activeBanner: {
     marginHorizontal: 16,
     marginTop: 14,

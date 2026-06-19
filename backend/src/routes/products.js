@@ -22,7 +22,7 @@ router.get(
     const products = await prisma.product.findMany({
       where,
       include: {
-        store: { select: { id: true, name: true, location: true, tbOverride: true } },
+        store: { select: { id: true, name: true, location: true, tnbOverride: true } },
         variants: true,
         ...(storeId && {
           tnbRequests: {
@@ -56,7 +56,7 @@ router.get(
     const product = await prisma.product.findUnique({
       where: { id: req.params.id },
       include: {
-        store: { select: { id: true, name: true, location: true, tbOverride: true } },
+        store: { select: { id: true, name: true, location: true, tnbOverride: true } },
         variants: true,
       },
     });

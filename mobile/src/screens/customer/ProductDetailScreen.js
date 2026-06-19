@@ -198,7 +198,7 @@ export default function ProductDetailScreen({ route, navigation }) {
   const productId = route?.params ? (route.params.productId || route.params.id) : null;
 
   const [apiProduct, setApiProduct] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(!!productId);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -359,7 +359,12 @@ export default function ProductDetailScreen({ route, navigation }) {
       Alert.alert("Select Size", "Please select a size to experience Voda Try & Buy.");
       return;
     }
-    
+
+    if (!selectedSizeObj?.id) {
+      Alert.alert("Error", "Product details failed to load. Go back and open the product again.");
+      return;
+    }
+
     addToCart({
       id: `${productData.id}-${selectedSize}`,
       productId: productData.id,

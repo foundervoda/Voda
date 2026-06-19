@@ -168,8 +168,8 @@ router.post(
       }
     }
 
-    // 20 seconds for testing — change to 10 * 60 * 1000 for production
-    const TNB_DURATION_MS = 20 * 1000;
+    // 30 seconds for testing — change to 10 * 60 * 1000 for production
+    const TNB_DURATION_MS = 30 * 1000;
     const tryTimerEnd = isTryBuy ? new Date(Date.now() + TNB_DURATION_MS) : null;
 
     const order = await prisma.order.update({
