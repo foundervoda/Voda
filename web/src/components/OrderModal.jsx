@@ -126,6 +126,27 @@ export default function OrderModal({ order, onClose }) {
               </div>
             </div>
           )}
+
+          {/* Runner */}
+          {order.runner && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Assigned Runner</h3>
+              <div className="bg-cream rounded-xl px-4 py-3 space-y-2 text-sm">
+                {order.runner.phone && (
+                  <div className="flex gap-2">
+                    <span className="text-gray-400 w-16 shrink-0">Phone</span>
+                    <span className="text-navy font-medium">{order.runner.phone}</span>
+                  </div>
+                )}
+                {order.runner.email && (
+                  <div className="flex gap-2">
+                    <span className="text-gray-400 w-16 shrink-0">Email</span>
+                    <span className="text-navy font-medium">{order.runner.email}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

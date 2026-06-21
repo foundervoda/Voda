@@ -3,13 +3,14 @@ import { connectSocket, socket } from "./api/socket";
 import { getToken } from "./api/client";
 import { getMe, logout } from "./api/auth";
 import LoginScreen from "./screens/LoginScreen";
-import OrdersBoard from "./screens/OrdersBoard";
+import OrdersBoard, { StoreTbTab } from "./screens/OrdersBoard";
 import StockView from "./screens/StockView";
 import AdminPanel from "./screens/AdminPanel";
 
 const TABS = [
-  { key: "orders", label: "Orders" },
-  { key: "stock",  label: "Stock"  },
+  { key: "orders", label: "Orders"    },
+  { key: "stock",  label: "Stock"     },
+  { key: "trybuy", label: "Try & Buy" },
 ];
 
 function SignOutButton({ onConfirm }) {
@@ -129,6 +130,11 @@ export default function App() {
       <header className="bg-navy px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
           <img src="/Voda Logo.png" alt="Voda" className="h-7 object-contain brightness-0 invert" />
+          {user.storeName && (
+            <span className="text-cream/60 text-xs font-semibold uppercase tracking-widest border-l border-white/20 pl-4">
+              {user.storeName}
+            </span>
+          )}
           <div className="flex gap-1 bg-white/10 rounded-lg p-0.5">
             {TABS.map((t) => (
               <button
@@ -155,6 +161,7 @@ export default function App() {
 
       {tab === "orders" && <OrdersBoard storeId={user.storeId} />}
       {tab === "stock"  && <StockView   storeId={user.storeId} />}
+      {tab === "trybuy" && <div className="p-5 max-w-6xl mx-auto"><StoreTbTab /></div>}
     </div>
   );
 }

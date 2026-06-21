@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
+import ActiveOrderBanner from "../components/ActiveOrderBanner";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuthStore } from "../store/useAuthStore";
 import AuthNavigator from "./AuthNavigator";
@@ -38,6 +39,7 @@ export default function RootNavigator() {
       {user.role === "RUNNER" || user.role === "RIDER" ? (
         <RunnerNavigator />
       ) : (
+      <View style={StyleSheet.absoluteFill}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="CustomerTabs" component={CustomerTabs} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
@@ -104,6 +106,8 @@ export default function RootNavigator() {
           }} 
         />
       </Stack.Navigator>
+      <ActiveOrderBanner />
+      </View>
       )}
     </SocketProvider>
   ) : (

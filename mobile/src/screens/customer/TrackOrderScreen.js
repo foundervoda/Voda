@@ -4,10 +4,12 @@ import {
   Text,
   StyleSheet,
   Pressable,
+  ScrollView,
   StatusBar,
   Dimensions,
   Platform,
   Image,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -66,6 +68,9 @@ export default function TrackOrderScreen({ route, navigation }) {
     const handleOrderUpdate = ({ order: updatedOrder }) => {
       if (updatedOrder && updatedOrder.id === order.id) {
         setOrder(updatedOrder);
+        if (updatedOrder.status === "TRY_BUY_IN_PROGRESS") {
+          navigation.replace("TryBuy", { order: updatedOrder });
+        }
       }
     };
 
@@ -80,14 +85,11 @@ export default function TrackOrderScreen({ route, navigation }) {
 
   const displayStatus = () => {
     switch (order.status) {
-      case "OUT_FOR_DELIVERY":
-        return "Rider is on the way";
-      case "ARRIVED":
-        return "Rider has arrived!";
-      case "DELIVERED":
-        return "Order Delivered";
-      default:
-        return order.status.replace(/_/g, " ");
+      case "OUT_FOR_DELIVERY":     return "Rider is on the way";
+      case "ARRIVED":              return "Rider has arrived!";
+      case "TRY_BUY_IN_PROGRESS": return "Try & Buy in progress";
+      case "DELIVERED":            return "Order Delivered";
+      default:                     return order.status.replace(/_/g, " ");
     }
   };
 
@@ -166,10 +168,19 @@ export default function TrackOrderScreen({ route, navigation }) {
             <Text style={s.riderSub}>Delivering #{order.id.slice(0, 8).toUpperCase()}</Text>
           </View>
           {order.status === "ARRIVED" && order.deliveryOtp && (
-            <View style={s.otpBadge}>
+            <Pressable
+              style={s.otpBadge}
+              onPress={() =>
+                Alert.alert(
+                  "Handover OTP",
+                  `${order.deliveryOtp.split("").join("  ")}\n\nShow this to your delivery agent.`,
+                  [{ text: "OK" }]
+                )
+              }
+            >
               <Text style={s.otpLabel}>OTP</Text>
               <Text style={s.otpVal}>{order.deliveryOtp}</Text>
-            </View>
+            </Pressable>
           )}
         </View>
 
@@ -179,6 +190,21 @@ export default function TrackOrderScreen({ route, navigation }) {
             {order.deliveryAddr}
           </Text>
         </View>
+
+        {order.items?.length > 0 && (
+          <>
+            <View style={s.divider} />
+            <Text style={s.itemsLabel}>Order Items</Text>
+            <ScrollView style={s.itemsScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+              {order.items.map((item, idx) => (
+                <View key={idx} style={s.itemRow}>
+                  <Text style={s.itemName} numberOfLines={1}>{item.product?.name ?? "Item"}</Text>
+                  <Text style={s.itemQty}>×{item.quantity}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </>
+        )}
       </View>
     </View>
   );
@@ -342,23 +368,25 @@ const s = StyleSheet.create({
     fontWeight: "600",
   },
   otpBadge: {
-    backgroundColor: "#012a62",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    backgroundColor: "#fdde59",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     alignItems: "center",
   },
   otpLabel: {
     fontSize: 9,
-    color: "#fdde59",
+    color: "#012a62",
     fontWeight: "800",
-    letterSpacing: 0.5,
+    letterSpacing: 1,
     marginBottom: 2,
+    textTransform: "uppercase",
   },
   otpVal: {
-    fontSize: 15,
-    color: "#ffffff",
-    fontWeight: "800",
+    fontSize: 20,
+    color: "#012a62",
+    fontWeight: "900",
+    letterSpacing: 4,
   },
   addressBlock: {
     flexDirection: "row",
@@ -373,5 +401,37 @@ const s = StyleSheet.create({
     color: "#012a62",
     fontWeight: "600",
     flex: 1,
+  },
+  itemsLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "rgba(1, 42, 98, 0.5)",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  itemsScroll: {
+    maxHeight: 90,
+  },
+  itemRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(1, 42, 98, 0.04)",
+  },
+  itemName: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#012a62",
+    flex: 1,
+    marginRight: 12,
+  },
+  itemQty: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "rgba(1, 42, 98, 0.5)",
   },
 });

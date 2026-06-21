@@ -4,7 +4,8 @@ All accounts use the same password: **`voda1234`**
 
 | Role | Email | Password | Notes |
 |---|---|---|---|
-| Customer | `customer@voda.test` | `voda1234` | Places orders on the mobile app |
+| Customer (Standard) | `customer_standard@voda.test` | `voda1234` | Places orders on the mobile app |
+| Customer (Gold) | `customer_gold@voda.test` | `voda1234` | Gold tier — free delivery + Try & Buy |
 | Store Staff | `store@voda.test` | `voda1234` | Sneaker House dashboard |
 | Store Staff | `store-zara@voda.test` | `voda1234` | Zara Luxe Hub dashboard |
 | Store Staff | `store-stellar@voda.test` | `voda1234` | Stellar Activewear dashboard |

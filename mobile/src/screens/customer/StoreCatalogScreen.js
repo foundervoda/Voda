@@ -302,6 +302,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#0d1b5e",
     fontWeight: "600",
+    letterSpacing: 0,
     padding: 0,
   },
   categoriesContainer: {

@@ -110,13 +110,24 @@ router.get(
   "/tb/products",
   ...guard,
   asyncHandler(async (req, res) => {
-    const products = await prisma.product.findMany({
+    const raw = await prisma.product.findMany({
       include: {
         store: { select: { id: true, name: true, tbOverride: true } }
       },
       orderBy: { name: "asc" }
     });
-    res.json({ data: { products }, error: null });
+
+    // Deduplicate by name+store — prefer rows with explicit tbRequest or tbEligible
+    const seen = new Map();
+    for (const p of raw) {
+      const key = `${p.name}|${p.storeId}`;
+      const existing = seen.get(key);
+      if (!existing || (p.tbRequest && p.tbRequest !== "NONE") || p.tbEligible !== null) {
+        seen.set(key, p);
+      }
+    }
+
+    res.json({ data: { products: [...seen.values()] }, error: null });
   })
 );
 

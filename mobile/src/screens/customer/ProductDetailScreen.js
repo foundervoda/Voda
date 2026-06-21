@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useOrderStore } from "../../store/useOrderStore";
+import { useActiveOrder } from "../../hooks/useActiveOrder";
 import { api } from "../../api/client";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -221,6 +222,7 @@ export default function ProductDetailScreen({ route, navigation }) {
   }, [productId]);
 
   const addToCart = useOrderStore((s) => s.addToCart);
+  const activeBannerOrder = useActiveOrder();
 
   // State Management (Unconditionally declared at the absolute top)
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -783,7 +785,7 @@ export default function ProductDetailScreen({ route, navigation }) {
 
       {/* Premium Sticky Bottom Action Bar */}
       <View 
-        style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+        style={{ paddingBottom: Math.max(insets.bottom, 16) + (activeBannerOrder ? 64 : 0) }}
         className="absolute bottom-0 left-0 right-0 border-t border-brand-blue/10 bg-brand-light/95 px-4 pt-3 flex-row items-center justify-between shadow-2xl z-40"
       >
         <View className="mr-5">

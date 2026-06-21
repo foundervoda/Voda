@@ -1,32 +1,9 @@
-import { useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
+import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../../api/client";
 
 export default function HandoverScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { order } = route.params;
-  const [loading, setLoading] = useState(false);
-
-  async function handover() {
-    setLoading(true);
-    try {
-      await api.post(`/runner/orders/${order.id}/handover`);
-      navigation.popToTop();
-    } catch (err) {
-      Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to complete handover");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -39,6 +16,14 @@ export default function HandoverScreen({ route, navigation }) {
         <View style={styles.collectedBadge}>
           <Text style={styles.collectedText}>Items Collected ✓</Text>
         </View>
+
+        {order.deliveryOtp ? (
+          <View style={styles.otpCard}>
+            <Text style={styles.otpLabel}>GIVE THIS CODE TO THE RIDER</Text>
+            <Text style={styles.otpCode}>{order.deliveryOtp}</Text>
+            <Text style={styles.otpHint}>The rider must enter this code to claim the package.</Text>
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <Text style={styles.label}>DELIVERY ADDRESS</Text>
@@ -62,21 +47,14 @@ export default function HandoverScreen({ route, navigation }) {
         </View>
 
         <Text style={styles.hint}>
-          Hand the sealed bag to the rider. Tap the button below once they have confirmed receipt.
+          Show the code above to the rider. They will enter it on their device to claim the package.
+          Once they confirm, you're done.
         </Text>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Pressable
-          style={[styles.btn, loading && styles.btnDisabled]}
-          onPress={handover}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#012a62" />
-          ) : (
-            <Text style={styles.btnText}>Hand Over to Rider</Text>
-          )}
+        <Pressable style={styles.btn} onPress={() => navigation.popToTop()}>
+          <Text style={styles.btnText}>Done — Back to Dashboard</Text>
         </Pressable>
       </View>
     </View>
@@ -113,6 +91,16 @@ const styles = StyleSheet.create({
   qty: { fontSize: 15, fontWeight: "700", color: S, width: 30, marginRight: 8 },
   itemName: { fontSize: 15, fontWeight: "600", color: S },
   itemVariant: { fontSize: 13, color: "#777", marginTop: 2 },
+  otpCard: {
+    backgroundColor: S,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 22,
+    alignItems: "center",
+  },
+  otpLabel: { fontSize: 10, fontWeight: "800", color: Y, letterSpacing: 1, marginBottom: 8 },
+  otpCode: { fontSize: 36, fontWeight: "900", color: "#fff", letterSpacing: 8, fontVariant: ["tabular-nums"], marginBottom: 6 },
+  otpHint: { fontSize: 11, color: "rgba(255,255,255,0.6)", textAlign: "center" },
   hint: { fontSize: 13, color: "#999", lineHeight: 20, marginTop: 4 },
   footer: {
     position: "absolute",

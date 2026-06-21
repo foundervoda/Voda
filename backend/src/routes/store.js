@@ -37,7 +37,16 @@ router.get(
       }),
     ]);
 
-    const enriched = products.map((p) => ({
+    // Deduplicate by name — prefer rows with an explicit tbRequest or tbEligible set
+    const seen = new Map();
+    for (const p of products) {
+      const existing = seen.get(p.name);
+      if (!existing || (p.tbRequest && p.tbRequest !== "NONE") || p.tbEligible !== null) {
+        seen.set(p.name, p);
+      }
+    }
+
+    const enriched = [...seen.values()].map((p) => ({
       ...p,
       ...resolveEffective(store, p),
     }));
@@ -47,6 +56,7 @@ router.get(
 );
 
 // POST /api/store/products/:id/tb-request
+// Applies the request to ALL products with the same name in the store (handles duplicates)
 router.post(
   "/products/:id/tb-request",
   ...guard,
@@ -59,9 +69,14 @@ router.post(
     });
     if (!product) return res.status(404).json({ error: { message: "Product not found" } });
 
-    const updated = await prisma.product.update({
-      where: { id: req.params.id },
+    // Update all products with the same name in this store
+    await prisma.product.updateMany({
+      where: { name: product.name, storeId },
       data: { tbRequest: requestType ?? null },
+    });
+
+    const updated = await prisma.product.findFirst({
+      where: { id: req.params.id },
       select: { id: true, name: true, category: true, tbEligible: true, tbRequest: true },
     });
 

@@ -4,6 +4,7 @@ import RunnerDashboard from "../screens/runner/RunnerDashboard";
 import AcceptOrderScreen from "../screens/runner/AcceptOrderScreen";
 import CollectionScreen from "../screens/runner/CollectionScreen";
 import HandoverScreen from "../screens/runner/HandoverScreen";
+import RunnerReturnScreen from "../screens/runner/RunnerReturnScreen";
 import RiderDashboard from "../screens/rider/RiderDashboard";
 import RiderDeliveryScreen from "../screens/rider/RiderDeliveryScreen";
 import RiderHistoryScreen from "../screens/rider/RiderHistoryScreen";
@@ -27,6 +28,7 @@ export default function RunnerNavigator() {
       <Stack.Screen name="AcceptOrder" component={AcceptOrderScreen} />
       <Stack.Screen name="Collection" component={CollectionScreen} />
       <Stack.Screen name="Handover" component={HandoverScreen} />
+      <Stack.Screen name="RunnerReturn" component={RunnerReturnScreen} />
       <Stack.Screen name="RunnerHistory" component={RunnerHistoryScreen} />
     </Stack.Navigator>
   );

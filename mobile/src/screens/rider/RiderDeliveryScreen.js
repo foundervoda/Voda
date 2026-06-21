@@ -11,11 +11,21 @@ export default function RiderDeliveryScreen({ route, navigation }) {
   const [order, setOrder] = useState(route.params.order);
   const [loading, setLoading] = useState(false);
   const [otpInput, setOtpInput] = useState("");
-  const [timeLeft, setTimeLeft] = useState("");
+  const [returnOtpInput, setReturnOtpInput] = useState("");
+  const [showReturnOtp, setShowReturnOtp] = useState(false);
 
   const isTryBuy = order.deliveryAddr?.includes(" | Try & Buy") || order.isTryAndBuy;
-  const showTimer = order.status === "DELIVERED" && order.tryTimerRemainingMs > 0;
-  const showTimerExpiredChoice = order.status === "DELIVERED" && isTryBuy && !showTimer;
+
+  // Derive 1-minute display countdown from server tryTimerEnd (same formula as customer TryBuyScreen)
+  const DISPLAY_OFFSET_MS = 4 * 60 * 1000;
+  function calcDisplaySecs(end) {
+    if (!end) return 0;
+    return Math.max(0, Math.floor((new Date(end).getTime() - DISPLAY_OFFSET_MS - Date.now()) / 1000));
+  }
+
+  const [timeLeftSecs, setTimeLeftSecs] = useState(() => calcDisplaySecs(order.tryTimerEnd));
+  const showTimer = order.status === "TRY_BUY_IN_PROGRESS" && timeLeftSecs > 0;
+  const showTimerExpiredChoice = order.status === "TRY_BUY_IN_PROGRESS" && !showTimer;
 
   // Socket listener for real-time status updates (e.g. customer finalizes keeps)
   useEffect(() => {
@@ -36,34 +46,14 @@ export default function RiderDeliveryScreen({ route, navigation }) {
     };
   }, [socket, order.id]);
 
-  // Synchronized timer countdown
+  // 1-minute display countdown from server tryTimerEnd — synced with customer TryBuyScreen
   useEffect(() => {
-    if (!showTimer || !order.tryTimerRemainingMs) return;
-
-    const startMs = Date.now();
-    const remainingMs = order.tryTimerRemainingMs;
-
+    if (order.status !== "TRY_BUY_IN_PROGRESS" || !order.tryTimerEnd) return;
     const interval = setInterval(() => {
-      const elapsed = Date.now() - startMs;
-      const diff = remainingMs - elapsed;
-
-      if (diff <= 0) {
-        clearInterval(interval);
-        setTimeLeft("00:00");
-        // Reload order state
-        api.get(`/orders/${order.id}`).then((res) => {
-          setOrder(res.data.data.order);
-        });
-      } else {
-        const minutes = Math.floor(diff / 60000);
-        const seconds = Math.floor((diff % 60000) / 1000);
-        const formatNum = (num) => (num < 10 ? `0${num}` : num);
-        setTimeLeft(`${formatNum(minutes)}:${formatNum(seconds)}`);
-      }
-    }, 1000);
-
+      setTimeLeftSecs(calcDisplaySecs(order.tryTimerEnd));
+    }, 500);
     return () => clearInterval(interval);
-  }, [order.tryTimerRemainingMs, showTimer]);
+  }, [order.status, order.tryTimerEnd]);
 
   // Live GPS simulation relay during delivery transit
   useEffect(() => {
@@ -117,7 +107,7 @@ export default function RiderDeliveryScreen({ route, navigation }) {
   };
 
   const verifyOtp = async () => {
-    if (isTryBuy && !otpInput.trim()) {
+    if (!otpInput.trim()) {
       Alert.alert("Error", "Please enter the 6-digit handover OTP from the customer");
       return;
     }
@@ -140,52 +130,25 @@ export default function RiderDeliveryScreen({ route, navigation }) {
   };
 
   const initiateReturn = () => {
-    Alert.alert(
-      "Confirm Return",
-      "Is the customer returning all items?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes, Return",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { data } = await api.post(`/rider/orders/${order.id}/initiate-return`);
-              setOrder(data.data.order);
-            } catch (err) {
-              Alert.alert("Error", err.response?.data?.error?.message ?? "Could not initiate return");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+    setReturnOtpInput("");
+    setShowReturnOtp(true);
   };
 
-  const completeReturn = () => {
-    Alert.alert(
-      "Confirm Return Complete",
-      "Have you returned the items to the store?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Confirm",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              await api.post(`/rider/orders/${order.id}/complete-return`);
-              navigation.popToTop();
-            } catch (err) {
-              Alert.alert("Error", err.response?.data?.error?.message ?? "Could not complete return");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+  const submitReturn = async () => {
+    if (!returnOtpInput.trim()) {
+      Alert.alert("Error", "Enter the 6-digit OTP from the customer");
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data } = await api.post(`/rider/orders/${order.id}/initiate-return`, { otp: returnOtpInput.trim() });
+      setShowReturnOtp(false);
+      setOrder(data.data.order);
+    } catch (err) {
+      Alert.alert("Error", err.response?.data?.error?.message ?? "Could not initiate return");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -212,29 +175,58 @@ export default function RiderDeliveryScreen({ route, navigation }) {
             <View style={styles.timerCard}>
               <Ionicons name="time" size={32} color="#012a62" />
               <Text style={styles.timerLabel}>Try & Buy Timer Active</Text>
-              <Text style={styles.timerClock}>{timeLeft || "--:--"}</Text>
+              <Text style={styles.timerClock}>
+                {String(Math.floor(timeLeftSecs / 60)).padStart(2, "0")}:{String(timeLeftSecs % 60).padStart(2, "0")}
+              </Text>
               <Text style={styles.timerHint}>
                 Customer is trying items at their doorstep. Timer is synchronized.
               </Text>
             </View>
-            <Pressable style={styles.returnBtn} onPress={initiateReturn} disabled={loading}>
-              <Text style={styles.returnBtnText}>↩  Customer Returning Items</Text>
-            </Pressable>
+            {showReturnOtp ? (
+              <View style={styles.returnOtpPanel}>
+                <Text style={styles.otpLabel}>ENTER CUSTOMER RETURN OTP</Text>
+                <TextInput
+                  style={styles.otpInput}
+                  placeholder="6-digit code"
+                  placeholderTextColor="#012a6240"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  value={returnOtpInput}
+                  onChangeText={setReturnOtpInput}
+                  autoFocus
+                />
+                <Text style={styles.otpHint}>The customer's app shows this after they tap "Return".</Text>
+                <Pressable style={[styles.btn, { marginTop: 12 }]} onPress={submitReturn} disabled={loading}>
+                  {loading ? <ActivityIndicator color={S} /> : <Text style={styles.btnText}>Confirm Return</Text>}
+                </Pressable>
+                <Pressable onPress={() => setShowReturnOtp(false)} style={{ marginTop: 10, alignItems: "center" }}>
+                  <Text style={{ color: S, opacity: 0.5, fontSize: 13 }}>Cancel</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable style={styles.returnBtn} onPress={initiateReturn} disabled={loading}>
+                <Text style={styles.returnBtnText}>↩  Customer Returning Items</Text>
+              </Pressable>
+            )}
           </>
         )}
 
-        {/* Return in progress */}
+        {/* Return in progress — show rider→runner OTP for runner to scan */}
         {order.status === "RETURNING" && (
           <View style={styles.returningCard}>
             <Text style={styles.returningIcon}>↩</Text>
-            <Text style={styles.returningTitle}>Return in Progress</Text>
+            <Text style={styles.returningTitle}>Return Initiated</Text>
             <Text style={styles.returningSubtitle}>
-              Take the items back to the store and confirm below.
+              Show this code to the runner collecting the package. They must enter it to accept the return job.
             </Text>
-            <Pressable style={[styles.btn, { marginTop: 16, width: "100%" }]} onPress={completeReturn} disabled={loading}>
-              {loading
-                ? <ActivityIndicator color={S} />
-                : <Text style={styles.btnText}>I'm Back at the Store</Text>}
+            {order.deliveryOtp ? (
+              <View style={styles.returningOtpBox}>
+                <Text style={styles.returningOtpLabel}>RUNNER HANDOFF CODE</Text>
+                <Text style={styles.returningOtpCode}>{order.deliveryOtp}</Text>
+              </View>
+            ) : null}
+            <Pressable style={[styles.btn, { marginTop: 16, width: "100%" }]} onPress={closeDelivery}>
+              <Text style={styles.btnText}>Done — Back to Dashboard</Text>
             </Pressable>
           </View>
         )}
@@ -276,49 +268,66 @@ export default function RiderDeliveryScreen({ route, navigation }) {
 
         {order.status === "ARRIVED" && (
           <View style={styles.actionPanel}>
-            {isTryBuy ? (
-              <View style={{ width: "100%", marginBottom: 16 }}>
-                <Text style={styles.otpLabel}>ENTER CUSTOMER HANDOVER OTP</Text>
-                <TextInput
-                  style={styles.otpInput}
-                  placeholder="e.g. 123456"
-                  placeholderTextColor="#012a6240"
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  value={otpInput}
-                  onChangeText={setOtpInput}
-                />
-                <Text style={styles.otpHint}>
-                  Ask the customer for the 6-digit OTP code displayed on their app.
-                </Text>
-              </View>
-            ) : (
-              <Text style={styles.stdHint}>Standard delivery. No OTP required.</Text>
-            )}
+            <View style={{ width: "100%", marginBottom: 16 }}>
+              <Text style={styles.otpLabel}>ENTER CUSTOMER HANDOVER OTP</Text>
+              <TextInput
+                style={styles.otpInput}
+                placeholder="e.g. 123456"
+                placeholderTextColor="#012a6240"
+                keyboardType="number-pad"
+                maxLength={6}
+                value={otpInput}
+                onChangeText={setOtpInput}
+              />
+              <Text style={styles.otpHint}>
+                Ask the customer for the 6-digit OTP code displayed on their app.
+              </Text>
+            </View>
             <Pressable style={styles.btn} onPress={verifyOtp} disabled={loading}>
               {loading ? (
                 <ActivityIndicator color="#012a62" />
               ) : (
-                <Text style={styles.btnText}>{isTryBuy ? "Verify OTP & Start Trial" : "Confirm Handover"}</Text>
+                <Text style={styles.btnText}>{isTryBuy ? "Verify OTP & Start Trial" : "Verify OTP & Complete"}</Text>
               )}
             </Pressable>
           </View>
         )}
 
         {showTimerExpiredChoice && (
-          <View style={styles.expiredCard}>
-            <Text style={styles.expiredIcon}>⏰</Text>
-            <Text style={styles.expiredTitle}>Try & Buy Time's Up</Text>
-            <Text style={styles.expiredSubtitle}>What did the customer decide?</Text>
-            <Pressable style={styles.expiredBtnComplete} onPress={closeDelivery} disabled={loading}>
-              <Text style={styles.expiredBtnCompleteText}>Order Complete — Keeps All</Text>
-            </Pressable>
-            <Pressable style={styles.expiredBtnReturn} onPress={initiateReturn} disabled={loading}>
-              {loading
-                ? <ActivityIndicator color={S} />
-                : <Text style={styles.expiredBtnReturnText}>Return to Mall</Text>}
-            </Pressable>
-          </View>
+          showReturnOtp ? (
+            <View style={styles.returnOtpPanel}>
+              <Text style={styles.otpLabel}>ENTER CUSTOMER RETURN OTP</Text>
+              <TextInput
+                style={styles.otpInput}
+                placeholder="6-digit code"
+                placeholderTextColor="#012a6240"
+                keyboardType="number-pad"
+                maxLength={6}
+                value={returnOtpInput}
+                onChangeText={setReturnOtpInput}
+                autoFocus
+              />
+              <Text style={styles.otpHint}>The customer's app shows this after they tap "Return".</Text>
+              <Pressable style={[styles.btn, { marginTop: 12 }]} onPress={submitReturn} disabled={loading}>
+                {loading ? <ActivityIndicator color={S} /> : <Text style={styles.btnText}>Confirm Return</Text>}
+              </Pressable>
+              <Pressable onPress={() => setShowReturnOtp(false)} style={{ marginTop: 10, alignItems: "center" }}>
+                <Text style={{ color: S, opacity: 0.5, fontSize: 13 }}>Cancel</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.expiredCard}>
+              <Text style={styles.expiredIcon}>⏰</Text>
+              <Text style={styles.expiredTitle}>Try & Buy Time's Up</Text>
+              <Text style={styles.expiredSubtitle}>What did the customer decide?</Text>
+              <Pressable style={styles.expiredBtnComplete} onPress={closeDelivery} disabled={loading}>
+                <Text style={styles.expiredBtnCompleteText}>Order Complete — Keeps All</Text>
+              </Pressable>
+              <Pressable style={styles.expiredBtnReturn} onPress={initiateReturn} disabled={loading}>
+                <Text style={styles.expiredBtnReturnText}>Return to Mall</Text>
+              </Pressable>
+            </View>
+          )
         )}
 
         {order.status === "DELIVERED" && !showTimer && !showTimerExpiredChoice && (
@@ -420,6 +429,14 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   returnBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  returnOtpPanel: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e8e0cc",
+    marginBottom: 22,
+  },
   returningCard: {
     backgroundColor: "#fff3e0",
     borderRadius: 14,
@@ -432,6 +449,17 @@ const styles = StyleSheet.create({
   returningIcon: { fontSize: 32, color: "#e65100" },
   returningTitle: { fontSize: 17, fontWeight: "800", color: "#e65100", marginTop: 6 },
   returningSubtitle: { fontSize: 12, color: "#bf360c", textAlign: "center", marginTop: 4, lineHeight: 17 },
+  returningOtpBox: {
+    marginTop: 14,
+    backgroundColor: "#e65100",
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    width: "100%",
+  },
+  returningOtpLabel: { fontSize: 9, fontWeight: "800", color: "rgba(255,255,255,0.7)", letterSpacing: 1, marginBottom: 4 },
+  returningOtpCode: { fontSize: 30, fontWeight: "900", color: "#fff", letterSpacing: 8, fontVariant: ["tabular-nums"] },
   expiredCard: {
     backgroundColor: "#fff8e1",
     borderRadius: 14,

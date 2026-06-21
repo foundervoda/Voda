@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View, Text, Pressable, StyleSheet, Alert, ActivityIndicator, ScrollView,
 } from "react-native";
@@ -6,13 +6,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSocket } from "../../api/SocketContext";
 import { api } from "../../api/client";
 
-function pad(n) {
-  return String(n).padStart(2, "0");
+const DISPLAY_OFFSET_MS = 4 * 60 * 1000; // server window (5min) minus display window (1min)
+
+function calcDisplaySecs(tryTimerEnd) {
+  if (!tryTimerEnd) return 0;
+  const displayEnd = new Date(tryTimerEnd).getTime() - DISPLAY_OFFSET_MS;
+  return Math.max(0, Math.floor((displayEnd - Date.now()) / 1000));
 }
 
-function secsRemaining(tryTimerEnd) {
-  return Math.max(0, Math.round((new Date(tryTimerEnd).getTime() - Date.now()) / 1000));
-}
+function pad(n) { return String(n).padStart(2, "0"); }
 
 export default function RiderTnbTimerScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
@@ -20,34 +22,36 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
   const { order: initialOrder } = route.params;
 
   const [order, setOrder] = useState(initialOrder);
-  const [secs, setSecs] = useState(() => secsRemaining(initialOrder.tryTimerEnd));
+  const [secs, setSecs] = useState(() => calcDisplaySecs(initialOrder.tryTimerEnd));
   const [initiatingReturn, setInitiatingReturn] = useState(false);
 
-  const timerRef = useRef(null);
-
-  // Drive the countdown from the server-supplied tryTimerEnd timestamp
+  // Countdown derived from server tryTimerEnd — identical to customer TryBuyScreen
   useEffect(() => {
-    if (!order.tryTimerEnd) return;
-    timerRef.current = setInterval(() => {
-      setSecs(secsRemaining(order.tryTimerEnd));
+    const interval = setInterval(() => {
+      setSecs(calcDisplaySecs(order.tryTimerEnd));
     }, 500);
-    return () => clearInterval(timerRef.current);
+    return () => clearInterval(interval);
   }, [order.tryTimerEnd]);
 
-  // Listen for order_update in case the status changes externally
+  // Auto-navigate when customer confirms via their app
   useEffect(() => {
     if (!socket) return;
     socket.emit("join_order_room", order.id);
     const handler = ({ order: updated }) => {
-      if (updated.id === order.id) setOrder(updated);
+      if (updated.id !== order.id) return;
+      setOrder(updated);
+      if (updated.status === "RETURNING") {
+        navigation.replace("RiderReturn", { order: updated });
+      } else if (updated.status === "DELIVERED" && new Date(updated.tryTimerEnd).getTime() <= 1000) {
+        // customer confirmed keep — tryTimerEnd was set to epoch (new Date(0))
+        navigation.popToTop();
+      }
     };
     socket.on("order_update", handler);
     return () => socket.off("order_update", handler);
-  }, [socket, order.id]);
+  }, [socket, order.id, navigation]);
 
   const expired = secs <= 0;
-  const mins = Math.floor(secs / 60);
-  const remainSecs = secs % 60;
 
   async function initiateReturn() {
     Alert.alert(
@@ -74,11 +78,7 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
     );
   }
 
-  function customerKeeping() {
-    navigation.popToTop();
-  }
-
-  const ringColor = expired ? "#e53935" : secs <= 5 ? "#ff7043" : Y;
+  const ringColor = expired ? "#e53935" : secs <= 10 ? "#ff7043" : Y;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -97,12 +97,20 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
           ) : (
             <>
               <Text style={[styles.timerCount, { color: ringColor }]}>
-                {pad(mins)}:{pad(remainSecs)}
+                {pad(Math.floor(secs / 60))}:{pad(secs % 60)}
               </Text>
               <Text style={styles.timerSub}>remaining</Text>
             </>
           )}
         </View>
+
+        {expired && (
+          <View style={styles.waitingBox}>
+            <Text style={styles.waitingText}>
+              Waiting for customer to confirm on their app…
+            </Text>
+          </View>
+        )}
 
         {/* Order summary */}
         <View style={styles.section}>
@@ -131,13 +139,11 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Pressable
-          style={styles.btnKeep}
-          onPress={customerKeeping}
-        >
-          <Text style={styles.btnKeepText}>Customer Keeping Items ✓</Text>
-        </Pressable>
-
+        <Text style={styles.footerHint}>
+          {expired
+            ? "Customer must confirm on their app. Use below only if their app is unavailable."
+            : "Stay with the customer until they decide on the app."}
+        </Text>
         <Pressable
           style={[styles.btnReturn, initiatingReturn && styles.btnDisabled]}
           onPress={initiateReturn}
@@ -145,7 +151,7 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
         >
           {initiatingReturn
             ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.btnReturnText}>Customer Returning Items</Text>}
+            : <Text style={styles.btnReturnText}>Override: Customer Returning Items</Text>}
         </Pressable>
       </View>
     </View>
@@ -189,6 +195,28 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 14, fontWeight: "600", color: S },
   itemVariant: { fontSize: 12, color: "#777", marginTop: 2 },
   hint: { fontSize: 12, color: "#aaa", lineHeight: 18, marginTop: 4 },
+  waitingBox: {
+    backgroundColor: "#fff8e1",
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#ffe082",
+    marginTop: 8,
+  },
+  waitingText: {
+    fontSize: 13,
+    color: "#b45309",
+    fontWeight: "600",
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  footerHint: {
+    fontSize: 11,
+    color: "#aaa",
+    textAlign: "center",
+    marginBottom: 10,
+    lineHeight: 15,
+  },
   footer: {
     position: "absolute",
     bottom: 0, left: 0, right: 0,
@@ -198,13 +226,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: "#e8e0cc",
   },
-  btnKeep: {
-    backgroundColor: Y,
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  btnKeepText: { fontSize: 15, fontWeight: "700", color: S },
   btnReturn: {
     backgroundColor: S,
     borderRadius: 10,

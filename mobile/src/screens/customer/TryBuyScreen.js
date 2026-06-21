@@ -11,116 +11,120 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useSocket } from "../../api/SocketContext";
 import { api } from "../../api/client";
+
+// Server sets tryTimerEnd = now + 5 min; display window = 1 min.
+// Offset between them = 4 min. Both screens derive from the same server timestamp.
+const DISPLAY_OFFSET_MS = 4 * 60 * 1000;
+
+function calcDisplaySecs(tryTimerEnd) {
+  if (!tryTimerEnd) return 0;
+  const displayEnd = new Date(tryTimerEnd).getTime() - DISPLAY_OFFSET_MS;
+  return Math.max(0, Math.floor((displayEnd - Date.now()) / 1000));
+}
 
 const formatRupeePrice = (amount) => {
   const rounded = Math.round(amount);
   return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 };
 
+function pad(n) { return String(n).padStart(2, "0"); }
+
 export default function TryBuyScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
-  const { order } = route.params;
+  const { order: initialOrder } = route.params;
+  const socket = useSocket();
 
+  const [order, setOrder] = useState(initialOrder);
   const [loading, setLoading] = useState(false);
-  const [timeLeft, setTimeLeft] = useState("");
-  const [selections, setSelections] = useState({}); // variantId -> 'KEEP' or 'RETURN'
-
-  // Initialize all eligible items as 'KEEP' by default
-  useEffect(() => {
+  const [secs, setSecs] = useState(() => calcDisplaySecs(initialOrder.tryTimerEnd));
+  const [expired, setExpired] = useState(() => calcDisplaySecs(initialOrder.tryTimerEnd) === 0);
+  const [returnOtp, setReturnOtp] = useState(null); // customer→rider OTP after request-return
+  const [selections, setSelections] = useState(() => {
     const initial = {};
-    order.items.forEach((item) => {
-      const isEligible =
-        item.product.category === "Sneakers" || item.product.category === "Apparel";
-      // Only show keeps/returns selector for eligible categories
-      if (isEligible) {
-        initial[item.variantId] = "KEEP";
-      }
+    initialOrder.items.forEach((item) => {
+      initial[item.variantId] = "KEEP";
     });
-    setSelections(initial);
-  }, [order]);
+    return initial;
+  });
 
-  // Synchronized countdown timer logic
+  // Countdown derived from server tryTimerEnd — stays in sync with rider screen
   useEffect(() => {
-    if (!order.tryTimerEnd) return;
-
-    const endTime = new Date(order.tryTimerEnd).getTime();
-
     const interval = setInterval(() => {
-      const now = Date.now();
-      const diff = endTime - now;
-
-      if (diff <= 0) {
-        clearInterval(interval);
-        setTimeLeft("00:00");
-        Alert.alert(
-          "Time Expired",
-          "Your 10-minute Try & Buy trial has ended. All items are confirmed as Kept.",
-          [{ text: "OK", onPress: () => handleAutoFinalize() }]
-        );
-      } else {
-        const minutes = Math.floor(diff / 60000);
-        const seconds = Math.floor((diff % 60000) / 1000);
-        const formatNum = (num) => (num < 10 ? `0${num}` : num);
-        setTimeLeft(`${formatNum(minutes)}:${formatNum(seconds)}`);
-      }
-    }, 1000);
-
+      const remaining = calcDisplaySecs(order.tryTimerEnd);
+      setSecs(remaining);
+      if (remaining === 0) setExpired(true);
+    }, 500);
     return () => clearInterval(interval);
   }, [order.tryTimerEnd]);
 
+  // Listen for order updates from rider (e.g. rider force-navigates)
+  useEffect(() => {
+    if (!socket) return;
+    socket.emit("join_order_room", order.id);
+    const handler = ({ order: updated }) => {
+      if (updated.id === order.id) setOrder(updated);
+    };
+    socket.on("order_update", handler);
+    return () => socket.off("order_update", handler);
+  }, [socket, order.id]);
+
   const toggleSelection = (variantId, choice) => {
-    setSelections((prev) => ({
-      ...prev,
-      [variantId]: choice,
-    }));
+    setSelections((prev) => ({ ...prev, [variantId]: choice }));
   };
 
-  // Compute Keep Subtotal, Return Refund, and final total
   const items = order.items || [];
   let keepsSubtotal = 0;
   let returnsTotal = 0;
-
   items.forEach((item) => {
-    const choice = selections[item.variantId] || "KEEP";
+    const choice = selections[item.variantId] ?? "KEEP";
     const cost = Number(item.product.price) * item.quantity;
-    if (choice === "KEEP") {
-      keepsSubtotal += cost;
-    } else {
-      returnsTotal += cost;
-    }
+    if (choice === "KEEP") keepsSubtotal += cost;
+    else returnsTotal += cost;
   });
 
   const deliveryFee = order.deliveryFee ?? 0;
   const tryAndBuyFee = order.tryAndBuyFee ?? 0;
   const finalTotalAmount = keepsSubtotal + deliveryFee + tryAndBuyFee;
+  const anyReturns = Object.values(selections).some((v) => v === "RETURN");
 
-  const handleAutoFinalize = async () => {
+  const handleKeepAll = async () => {
     setLoading(true);
     try {
-      await api.post(`/orders/${order.id}/confirm-tb-keeps`);
+      await api.post(`/orders/${order.id}/confirm-tb-keeps`, { selections });
+      Alert.alert("Confirmed!", "Your items are confirmed as kept. Enjoy!");
       navigation.popToTop();
     } catch (err) {
-      console.warn("Auto-finalize error:", err.message);
+      Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to confirm");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubmit = async () => {
-    setLoading(true);
-    try {
-      // Send Keeps & Returns selections to backend
-      await api.post(`/orders/${order.id}/confirm-tb-keeps`, {
-        selections,
-      });
-      Alert.alert("Success", "Try & Buy selection confirmed! Receipt updated.");
-      navigation.popToTop();
-    } catch (err) {
-      Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to save selections");
-    } finally {
-      setLoading(false);
-    }
+  const handleReturn = () => {
+    Alert.alert(
+      "Return Items?",
+      "The rider will collect the items. You will be refunded for returned items.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Return",
+          style: "destructive",
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const { data } = await api.post(`/orders/${order.id}/request-return`);
+              setReturnOtp(data.data.returnOtp);
+            } catch (err) {
+              Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to initiate return");
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -129,17 +133,27 @@ export default function TryBuyScreen({ route, navigation }) {
 
       {/* Header */}
       <View style={[s.header, { paddingTop: Math.max(insets.top, 16) }]}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={s.backBtn}>
+          <Ionicons name="arrow-back" size={20} color="#012a62" />
+        </Pressable>
         <Text style={s.headerTitle}>Try & Buy Portal</Text>
+        <View style={{ width: 36 }} />
       </View>
 
       <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 120 }]}>
         {/* Timer Card */}
-        <View style={s.timerCard}>
-          <Ionicons name="timer-outline" size={24} color="#012a62" />
-          <Text style={s.timerTitle}>Trial Time Remaining</Text>
-          <Text style={s.timerClock}>{timeLeft || "--:--"}</Text>
+        <View style={[s.timerCard, expired && s.timerCardExpired]}>
+          <Ionicons name="timer-outline" size={24} color={expired ? "#dc2626" : "#012a62"} />
+          <Text style={[s.timerTitle, expired && s.timerTitleExpired]}>
+            {expired ? "Time's Up — Choose Now" : "Trial Time Remaining"}
+          </Text>
+          <Text style={[s.timerClock, expired && s.timerClockExpired]}>
+            {expired ? "00:00" : `${pad(Math.floor(secs / 60))}:${pad(secs % 60)}`}
+          </Text>
           <Text style={s.timerSubtitle}>
-            Try your items at your doorstep. Select what you want to return before the timer expires.
+            {expired
+              ? "Your 1-minute trial has ended. Please confirm your decision."
+              : "You have 1 minute to try your items. Select what you want to return."}
           </Text>
         </View>
 
@@ -231,17 +245,41 @@ export default function TryBuyScreen({ route, navigation }) {
 
       {/* Sticky Bottom Actions */}
       <View style={[s.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Pressable
-          style={[s.submitBtn, loading && s.btnDisabled]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#012a62" />
-          ) : (
-            <Text style={s.submitBtnText}>Confirm Selection • ₹{formatRupeePrice(finalTotalAmount)}</Text>
-          )}
-        </Pressable>
+        {returnOtp ? (
+          <>
+            <View style={s.otpCard}>
+              <Text style={s.otpTitle}>Show this code to the rider</Text>
+              <Text style={s.otpCode}>{returnOtp}</Text>
+              <Text style={s.otpHint}>The rider will enter this code to confirm the return pickup.</Text>
+            </View>
+            <Pressable onPress={() => setReturnOtp(null)} style={s.cancelLink}>
+              <Text style={s.cancelLinkText}>Changed my mind — go back</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            {anyReturns ? (
+              <Pressable
+                style={[s.returnBtn, loading && s.btnDisabled]}
+                onPress={handleReturn}
+                disabled={loading}
+              >
+                {loading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.returnBtnText}>Return Selected Items — Refund ₹{formatRupeePrice(returnsTotal)}</Text>}
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={[s.submitBtn, loading && s.btnDisabled]}
+              onPress={handleKeepAll}
+              disabled={loading}
+            >
+              {loading
+                ? <ActivityIndicator color="#012a62" />
+                : <Text style={s.submitBtnText}>Keep All Items • Pay ₹{formatRupeePrice(finalTotalAmount)}</Text>}
+            </Pressable>
+          </>
+        )}
       </View>
     </View>
   );
@@ -253,17 +291,27 @@ const s = StyleSheet.create({
     backgroundColor: "#fdf9ea",
   },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: "#012a6210",
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     backgroundColor: "#ffffff",
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: "#012a62",
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#012a6208",
+    alignItems: "center",
+    justifyContent: "center",
   },
   content: {
     padding: 20,
@@ -303,6 +351,16 @@ const s = StyleSheet.create({
     textAlign: "center",
     lineHeight: 17,
     fontWeight: "600",
+  },
+  timerCardExpired: {
+    borderColor: "#dc2626",
+    backgroundColor: "#fff5f5",
+  },
+  timerTitleExpired: {
+    color: "#dc2626",
+  },
+  timerClockExpired: {
+    color: "#dc2626",
   },
   sectionLabel: {
     fontSize: 12,
@@ -466,7 +524,59 @@ const s = StyleSheet.create({
     fontWeight: "900",
     fontSize: 16,
   },
+  returnBtn: {
+    backgroundColor: "#dc2626",
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  returnBtnText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 15,
+  },
   btnDisabled: {
     opacity: 0.5,
+  },
+  otpCard: {
+    backgroundColor: "#012a62",
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    alignItems: "center",
+  },
+  otpTitle: {
+    color: "#fdde59",
+    fontWeight: "800",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  otpCode: {
+    color: "#ffffff",
+    fontSize: 40,
+    fontWeight: "900",
+    letterSpacing: 10,
+    fontVariant: ["tabular-nums"],
+    marginBottom: 8,
+  },
+  otpHint: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 11,
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  cancelLink: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  cancelLinkText: {
+    color: "#012a62",
+    opacity: 0.45,
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

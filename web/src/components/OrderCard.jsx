@@ -1,14 +1,12 @@
-import { useState } from "react";
-import { updateOrderStatus } from "../api/orders";
-
 const STATUS_META = {
   PENDING:           { label: "New Order",         bg: "bg-yellow",       text: "text-navy" },
   RUNNER_ASSIGNED:   { label: "Runner Assigned",   bg: "bg-blue-100",     text: "text-blue-800" },
   COLLECTED:         { label: "Collected",          bg: "bg-indigo-100",   text: "text-indigo-800" },
   HANDED_TO_RIDER:   { label: "With Rider",         bg: "bg-indigo-100",   text: "text-indigo-800" },
   OUT_FOR_DELIVERY:  { label: "Out for Delivery",   bg: "bg-indigo-200",   text: "text-indigo-900" },
-  ARRIVED:           { label: "Arrived",            bg: "bg-emerald-100",  text: "text-emerald-800" },
-  DELIVERED:         { label: "Delivered",          bg: "bg-emerald-200",  text: "text-emerald-900" },
+  ARRIVED:              { label: "Arrived",         bg: "bg-emerald-100",  text: "text-emerald-800" },
+  TRY_BUY_IN_PROGRESS: { label: "Try & Buy",       bg: "bg-yellow",       text: "text-navy" },
+  DELIVERED:            { label: "Delivered",       bg: "bg-emerald-200",  text: "text-emerald-900" },
   RETURNING:         { label: "Returning",          bg: "bg-gray-100",     text: "text-gray-600" },
   RETURNED:          { label: "Returned",           bg: "bg-gray-100",     text: "text-gray-600" },
   REFUNDED:          { label: "Refunded",           bg: "bg-gray-100",     text: "text-gray-600" },
@@ -24,22 +22,17 @@ function smartTime(dateStr) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(!sameYear && { year: "numeric" }) });
 }
 
-export default function OrderCard({ order, onUpdated, onClick }) {
-  const [loading, setLoading] = useState(false);
+const OTP_STATUSES = new Set(["RUNNER_ASSIGNED", "RETURNING"]);
+const OTP_LABELS = {
+  RUNNER_ASSIGNED: "Give to runner:",
+  RETURNING:       "Confirm to runner:",
+};
+
+export default function OrderCard({ order, onClick }) {
   const meta = STATUS_META[order.status] ?? { label: order.status, bg: "bg-gray-100", text: "text-gray-600" };
   const shortId = order.id.slice(-6).toUpperCase();
   const isNew = order.status === "PENDING";
-
-  async function handleConfirm(e) {
-    e.stopPropagation();
-    setLoading(true);
-    try {
-      const updated = await updateOrderStatus(order.id, "COLLECTED");
-      onUpdated?.(updated);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const showOtp = OTP_STATUSES.has(order.status) && order.deliveryOtp;
 
   return (
     <div
@@ -81,6 +74,19 @@ export default function OrderCard({ order, onUpdated, onClick }) {
         ))}
       </div>
 
+      {/* OTP badge for store-facing handoffs */}
+      {showOtp && (
+        <div className="mx-4 mb-3 bg-navy rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold text-yellow/70 uppercase tracking-wide mb-0.5">
+              {OTP_LABELS[order.status]}
+            </p>
+            <p className="font-mono font-black text-white text-2xl tracking-[0.25em]">{order.deliveryOtp}</p>
+          </div>
+          <span className="text-yellow text-2xl">🔐</span>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="px-4 py-3 mt-1 border-t border-gray-50 flex items-end justify-between gap-4">
         <div className="space-y-0.5 text-xs text-gray-500 min-w-0">
@@ -94,14 +100,9 @@ export default function OrderCard({ order, onUpdated, onClick }) {
           )}
         </div>
         {isNew && (
-          <button
-            onClick={handleConfirm}
-            disabled={loading}
-            className="shrink-0 bg-yellow text-navy text-xs font-bold px-3 py-1.5 rounded-lg
-                       hover:brightness-95 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? "…" : "Mark as Collected"}
-          </button>
+          <span className="shrink-0 text-xs font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+            Awaiting runner
+          </span>
         )}
       </div>
     </div>

@@ -13,13 +13,16 @@ export default function RunnerDashboard({ navigation }) {
   const { logout } = useAuthStore();
 
   const {
-    data: available = [],
+    data: allAvailable = [],
     refetch: refetchAvailable,
     isFetching: loadingAvailable,
   } = useQuery({
     queryKey: ["runner-available"],
     queryFn: () => api.get("/runner/orders").then((r) => r.data.data.orders),
   });
+
+  const available = allAvailable.filter((o) => o.status === "PENDING");
+  const returnJobs = allAvailable.filter((o) => o.status === "RETURNING");
 
   const { data: mine = [], refetch: refetchMine } = useQuery({
     queryKey: ["runner-mine"],
@@ -85,6 +88,7 @@ export default function RunnerDashboard({ navigation }) {
 
       <SectionList
         sections={[
+          { title: "Return Jobs", data: returnJobs },
           { title: "Available Orders", data: available },
         ]}
         keyExtractor={(o) => o.id}
@@ -93,17 +97,44 @@ export default function RunnerDashboard({ navigation }) {
         }
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
         stickySectionHeadersEnabled={false}
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionLabel}>{section.title}</Text>
-        )}
+        renderSectionHeader={({ section }) =>
+          section.data.length > 0 ? (
+            <Text style={styles.sectionLabel}>{section.title}</Text>
+          ) : null
+        }
         renderSectionFooter={({ section }) =>
-          section.data.length === 0 ? (
+          section.title === "Available Orders" && section.data.length === 0 ? (
             <Text style={styles.empty}>No pending orders right now</Text>
           ) : null
         }
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         SectionSeparatorComponent={() => <View style={{ height: 8 }} />}
         renderItem={({ item, section }) => {
+          if (section.title === "Return Jobs") {
+            return (
+              <Pressable
+                style={[styles.card, styles.returnCard]}
+                onPress={() => navigation.navigate("RunnerReturn", { order: item })}
+              >
+                <View style={styles.returnTag}>
+                  <Text style={styles.returnTagText}>↩ RETURN JOB</Text>
+                </View>
+                <Text style={styles.cardAddr} numberOfLines={1}>{item.deliveryAddr}</Text>
+                <Text style={styles.cardMeta}>
+                  {item.items.length} item{item.items.length !== 1 ? "s" : ""} to return to store
+                </Text>
+                <View style={styles.cardItemList}>
+                  {item.items.map((i) => (
+                    <Text key={i.id} style={styles.cardItemText} numberOfLines={1}>
+                      {i.quantity}× {i.product.name} ({i.variant.size}{i.variant.color ? `, ${i.variant.color}` : ""})
+                    </Text>
+                  ))}
+                </View>
+                <Text style={styles.cardCta}>Handle Return →</Text>
+              </Pressable>
+            );
+          }
+
           if (section.title === "Available Orders") {
             return (
               <Pressable style={styles.card} onPress={() => navigation.navigate("AcceptOrder", { order: item })}>
@@ -179,6 +210,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e8e0cc",
   },
+  returnCard: { borderColor: "#e65100", borderWidth: 1.5 },
+  returnTag: {
+    alignSelf: "flex-start",
+    backgroundColor: "#fff3e0",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  returnTagText: { fontSize: 10, fontWeight: "800", color: "#e65100", letterSpacing: 0.5 },
   cardAddr: { fontSize: 15, fontWeight: "600", color: S, marginBottom: 3 },
   cardMeta: { fontSize: 12, color: "#888", marginBottom: 8 },
   cardItemList: { marginBottom: 10 },

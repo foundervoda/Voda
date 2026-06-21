@@ -60,7 +60,15 @@ router.get(
   "/me",
   requireAuth,
   asyncHandler(async (req, res) => {
-    res.json({ data: { user: toPublicUser(req.user) }, error: null });
+    const user = toPublicUser(req.user);
+    if (user.storeId) {
+      const store = await prisma.store.findUnique({
+        where: { id: user.storeId },
+        select: { name: true },
+      });
+      user.storeName = store?.name ?? null;
+    }
+    res.json({ data: { user }, error: null });
   })
 );
 

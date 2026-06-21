@@ -1,59 +1,31 @@
-import { useState } from "react";
-import {
-  View, Text, ScrollView, Pressable, StyleSheet, Alert, ActivityIndicator,
-} from "react-native";
+import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../../api/client";
 
 export default function RiderReturnScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { order } = route.params;
-  const [loading, setLoading] = useState(false);
-
-  async function completeReturn() {
-    Alert.alert(
-      "Confirm Return",
-      "Confirm you have delivered the items back to the store?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Confirm",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              await api.post(`/rider/orders/${order.id}/complete-return`);
-              navigation.popToTop();
-            } catch (err) {
-              Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to complete return");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Return in Progress</Text>
-        <Text style={styles.subtitle}>Take the items back to the store</Text>
+        <Text style={styles.title}>Return Initiated</Text>
+        <Text style={styles.subtitle}>Hand the package to a runner</Text>
       </View>
 
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 110 }]}>
         <View style={styles.returnBadge}>
           <Text style={styles.returnIcon}>↩</Text>
-          <Text style={styles.returnText}>Returning to Store</Text>
+          <Text style={styles.returnText}>Awaiting Runner Pickup</Text>
+        </View>
+
+        <View style={styles.infoBox}>
+          <Text style={styles.infoText}>
+            Give the package to an available runner. A runner will collect it and return it to the store on your behalf.
+          </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>ORIGINAL DELIVERY ADDRESS</Text>
-          <Text style={styles.value}>{order.deliveryAddr}</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>ITEMS TO RETURN</Text>
+          <Text style={styles.label}>ITEMS TO HAND OVER</Text>
           {order.items.map((item) => (
             <View key={item.id} style={styles.itemRow}>
               <Text style={styles.qty}>{item.quantity}×</Text>
@@ -66,24 +38,11 @@ export default function RiderReturnScreen({ route, navigation }) {
             </View>
           ))}
         </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            Hand the items back to the store staff. The store will process the refund once the return
-            is confirmed.
-          </Text>
-        </View>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Pressable
-          style={[styles.btn, loading && styles.btnDisabled]}
-          onPress={completeReturn}
-          disabled={loading}
-        >
-          {loading
-            ? <ActivityIndicator color={S} />
-            : <Text style={styles.btnText}>I'm Back at the Store — Return Complete</Text>}
+        <Pressable style={styles.btn} onPress={() => navigation.popToTop()}>
+          <Text style={styles.btnText}>Done — Back to Dashboard</Text>
         </Pressable>
       </View>
     </View>

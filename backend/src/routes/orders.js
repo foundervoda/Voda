@@ -123,10 +123,11 @@ router.post(
 
     const enriched = enrichOrderWithFees(order, req.user.email);
 
-    // Emit new_order to the store dashboard and to all connected runners
+    // Emit new_order to the store dashboard, runners pool, and the customer
     const io = req.app.get("io");
     io.to(`store:${storeId}`).emit("new_order", { order: enriched });
     io.to("runners").emit("new_order", { order: enriched });
+    io.to(`user:${req.user.id}`).emit("new_order", { order: enriched });
 
     res.status(201).json({ data: { order: enriched }, error: null });
   })
@@ -202,11 +203,12 @@ router.post(
       return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
     }
     
-    // Stop the timer by updating tryTimerEnd to a past date
+    // Customer confirmed keeps — mark as fully delivered and stop the timer
     const order = await prisma.order.update({
       where: { id: req.params.id },
       data: {
-        tryTimerEnd: new Date(0), // Set to past to indicate it's complete
+        status: "DELIVERED",
+        tryTimerEnd: new Date(0),
       },
       include: {
         items: { include: { product: { include: { store: true } }, variant: true } },
@@ -221,6 +223,40 @@ router.post(
     io.to(`order:${order.id}`).emit("order_update", { order: enriched });
 
     res.json({ data: { order: enriched }, error: null });
+  })
+);
+
+// POST /api/orders/:id/request-return — Customer requests T&B return: generates OTP for rider handoff
+router.post(
+  "/:id/request-return",
+  requireAuth,
+  requireRole("CUSTOMER"),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+    if (existing.status !== "TRY_BUY_IN_PROGRESS") {
+      return res.status(409).json({ data: null, error: { message: "Order is not in Try & Buy progress state", code: "CONFLICT" } });
+    }
+
+    // Generate customer→rider return OTP; status stays TRY_BUY_IN_PROGRESS until rider verifies
+    const returnOtp = String(Math.floor(100000 + Math.random() * 900000));
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { deliveryOtp: returnOtp, tryTimerEnd: new Date(0) },
+      include: {
+        items: { include: { product: { include: { store: true } }, variant: true } },
+        customer: { select: { email: true } },
+      },
+    });
+
+    const enriched = enrichOrderWithFees(order, order.customer?.email);
+
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order: enriched });
+
+    res.json({ data: { order: enriched, returnOtp }, error: null });
   })
 );
 

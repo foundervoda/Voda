@@ -1,5 +1,5 @@
-import { useCallback, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, RefreshControl, SectionList, ActivityIndicator } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { View, Text, Pressable, StyleSheet, RefreshControl, FlatList, ActivityIndicator, Modal, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { useFocusEffect } from "@react-navigation/native";
@@ -11,6 +11,9 @@ export default function RiderDashboard({ navigation }) {
   const insets = useSafeAreaInsets();
   const socket = useSocket();
   const { logout } = useAuthStore();
+  const [claimTarget, setClaimTarget] = useState(null); // order being claimed
+  const [claimOtp, setClaimOtp] = useState("");
+  const [claiming, setClaiming] = useState(false);
 
   const {
     data: available = [],
@@ -54,18 +57,56 @@ export default function RiderDashboard({ navigation }) {
     };
   }, [socket, refetchAll]);
 
-  const claimOrder = async (orderId) => {
+  const openClaimModal = (order) => {
+    setClaimTarget(order);
+    setClaimOtp("");
+  };
+
+  const submitClaim = async () => {
+    if (!claimTarget || claimOtp.trim().length !== 6) return;
+    setClaiming(true);
     try {
-      const { data } = await api.post(`/rider/orders/${orderId}/assign`);
+      const { data } = await api.post(`/rider/orders/${claimTarget.id}/assign`, { otp: claimOtp.trim() });
+      setClaimTarget(null);
       refetchAll();
       navigation.navigate("RiderDelivery", { order: data.data.order });
     } catch (err) {
       alert(err.response?.data?.error?.message ?? "Could not accept order");
+    } finally {
+      setClaiming(false);
     }
   };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <Modal visible={!!claimTarget} transparent animationType="fade" onRequestClose={() => setClaimTarget(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Enter Runner OTP</Text>
+            <Text style={styles.modalHint}>Ask the runner for the 6-digit code to claim this package.</Text>
+            <TextInput
+              style={styles.modalOtpInput}
+              placeholder="______"
+              placeholderTextColor="#012a6240"
+              keyboardType="number-pad"
+              maxLength={6}
+              value={claimOtp}
+              onChangeText={setClaimOtp}
+              autoFocus
+            />
+            <Pressable
+              style={[styles.modalBtn, (claimOtp.trim().length !== 6 || claiming) && styles.btnDisabled]}
+              onPress={submitClaim}
+              disabled={claimOtp.trim().length !== 6 || claiming}
+            >
+              {claiming ? <ActivityIndicator color={S} /> : <Text style={styles.modalBtnText}>Claim Order</Text>}
+            </Pressable>
+            <Pressable onPress={() => setClaimTarget(null)} style={{ marginTop: 10, alignItems: "center" }}>
+              <Text style={{ color: S, opacity: 0.5, fontSize: 13 }}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       <View style={styles.header}>
         <Text style={styles.title}>Delivery Agent</Text>
         <View style={styles.headerRight}>
@@ -93,62 +134,26 @@ export default function RiderDashboard({ navigation }) {
         </Pressable>
       )}
 
-      <SectionList
-        sections={[
-          { title: "Available for Delivery", data: available },
-          { title: "My Deliveries", data: mine.filter((o) => o.id !== activeOrder?.id) },
-        ]}
+      <FlatList
+        data={available}
         keyExtractor={(o) => o.id}
         refreshControl={
           <RefreshControl refreshing={loadingAvailable} onRefresh={refetchAll} tintColor="#012a62" />
         }
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 16 }]}
-        stickySectionHeadersEnabled={false}
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionLabel}>{section.title}</Text>
-        )}
-        renderSectionFooter={({ section }) =>
-          section.data.length === 0 ? (
-            <Text style={styles.empty}>
-              {section.title === "Available for Delivery"
-                ? "No packages waiting at handover right now"
-                : "No other delivery history active"}
-            </Text>
-          ) : null
-        }
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        SectionSeparatorComponent={() => <View style={{ height: 8 }} />}
-        renderItem={({ item, section }) => {
-          if (section.title === "Available for Delivery") {
-            return (
-              <Pressable style={styles.card} onPress={() => claimOrder(item.id)}>
-                <Text style={styles.cardAddr} numberOfLines={1}>
-                  {item.deliveryAddr}
-                </Text>
-                <Text style={styles.cardMeta}>
-                  {item.items.length} item{item.items.length !== 1 ? "s" : ""} ·{" "}
-                  {item.isTryAndBuy ? "Try & Buy active" : "Standard Delivery"}
-                </Text>
-                <Text style={styles.cardCta}>Accept Delivery & Depart →</Text>
-              </Pressable>
-            );
-          }
-
-          // Inactive active delivery row
-          return (
-            <View style={styles.historyRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.historyAddr} numberOfLines={1}>
-                  {item.deliveryAddr}
-                </Text>
-                <Text style={styles.historyMeta}>
-                  {item.items.length} items · {item.isTryAndBuy ? "T&B" : "Std"}
-                </Text>
-              </View>
-              <Text style={styles.historyStatus}>{item.status.replace(/_/g, " ")}</Text>
-            </View>
-          );
-        }}
+        ListHeaderComponent={<Text style={styles.sectionLabel}>Available for Delivery</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>No packages waiting at handover right now</Text>}
+        renderItem={({ item }) => (
+          <Pressable style={styles.card} onPress={() => openClaimModal(item)}>
+            <Text style={styles.cardAddr} numberOfLines={1}>{item.deliveryAddr}</Text>
+            <Text style={styles.cardMeta}>
+              {item.items.length} item{item.items.length !== 1 ? "s" : ""} ·{" "}
+              {item.isTryAndBuy ? "Try & Buy active" : "Standard Delivery"}
+            </Text>
+            <Text style={styles.cardCta}>Accept Delivery & Depart →</Text>
+          </Pressable>
+        )}
       />
     </View>
   );
@@ -207,16 +212,24 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: 12, color: "#888", marginBottom: 8 },
   cardCta: { fontSize: 13, fontWeight: "700", color: S, textAlign: "right" },
   empty: { textAlign: "center", color: "#aaa", marginTop: 16, marginBottom: 8, fontSize: 14 },
-  historyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
+  modalBox: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "100%", maxWidth: 360 },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: S, marginBottom: 6, textAlign: "center" },
+  modalHint: { fontSize: 13, color: "#666", textAlign: "center", marginBottom: 18, lineHeight: 18 },
+  modalOtpInput: {
+    borderWidth: 1.5,
+    borderColor: S,
     borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#e8e0cc",
+    paddingVertical: 12,
+    fontSize: 28,
+    color: S,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 10,
+    backgroundColor: BG,
+    marginBottom: 14,
   },
-  historyAddr: { fontSize: 14, fontWeight: "600", color: S, marginBottom: 2 },
-  historyMeta: { fontSize: 12, color: "#888" },
-  historyStatus: { fontSize: 11, fontWeight: "700", color: S, opacity: 0.45, textAlign: "right" },
+  modalBtn: { backgroundColor: Y, borderRadius: 10, paddingVertical: 13, alignItems: "center" },
+  modalBtnText: { fontSize: 16, fontWeight: "700", color: S },
+  btnDisabled: { opacity: 0.45 },
 });

@@ -10,6 +10,7 @@ import {
   Platform,
   UIManager,
   StatusBar,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -55,6 +56,8 @@ const getStatusColor = (status) => {
     case "OUT_FOR_DELIVERY":
     case "ARRIVED":
       return { bg: "#fef3c7", text: "#b45309" };
+    case "TRY_BUY_IN_PROGRESS":
+      return { bg: "#fef9c3", text: "#854d0e" };
     case "RETURNING":
       return { bg: "#ffedd5", text: "#ea580c" };
     case "RETURNED":
@@ -69,9 +72,13 @@ export default function OrderHistoryScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const socket = useSocket();
 
-  const [orders, setOrders] = useState(route.params?.orders || []);
+  const [liveOrders, setLiveOrders] = useState([]);
+  const [pastOrders, setPastOrders] = useState(route.params?.orders || []);
   const [loading, setLoading] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState(null);
+
+  const LIVE_STATUSES = new Set(["PENDING","RUNNER_ASSIGNED","COLLECTED","HANDED_TO_RIDER","OUT_FOR_DELIVERY","ARRIVED","TRY_BUY_IN_PROGRESS","RETURNING"]);
+  const isLive = (o) => LIVE_STATUSES.has(o.status);
 
   useEffect(() => {
     loadOrders();
@@ -93,15 +100,10 @@ export default function OrderHistoryScreen({ route, navigation }) {
     try {
       const res = await api.get("/orders");
       const list = res.data?.data?.orders || res.data?.orders || [];
-      const completedList = list.filter(
-        (o) =>
-          o.status === "RETURNED" ||
-          o.status === "REFUNDED" ||
-          (o.status === "DELIVERED" && (!o.tryTimerRemainingMs || o.tryTimerRemainingMs <= 0))
-      );
-      setOrders(completedList);
+      setLiveOrders(list.filter(isLive).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      setPastOrders(list.filter((o) => !isLive(o)).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
     } catch (err) {
-      console.warn("Could not fetch orders in OrderHistoryScreen:", err.message);
+      console.warn("Could not fetch orders:", err.message);
     } finally {
       setLoading(false);
     }
@@ -125,7 +127,7 @@ export default function OrderHistoryScreen({ route, navigation }) {
         >
           <Ionicons name="arrow-back" size={22} color="#012a62" />
         </Pressable>
-        <Text style={s.headerTitle}>Order History</Text>
+        <Text style={s.headerTitle}>My Orders</Text>
         <Pressable onPress={loadOrders} style={s.refreshHeaderBtn} hitSlop={12}>
           <Ionicons name="refresh" size={18} color="#012a62" />
         </Pressable>
@@ -135,16 +137,69 @@ export default function OrderHistoryScreen({ route, navigation }) {
         contentContainerStyle={[s.content, { paddingBottom: Math.max(insets.bottom, 20) + 12 }]}
         showsVerticalScrollIndicator={false}
       >
-        {loading && orders.length === 0 ? (
+        {loading && liveOrders.length === 0 && pastOrders.length === 0 ? (
           <ActivityIndicator color="#012a62" style={{ marginVertical: 40 }} />
-        ) : orders.length === 0 ? (
-          <View style={s.emptyOrdersCard}>
-            <Ionicons name="receipt-outline" size={44} color="#012a6230" style={{ marginBottom: 12 }} />
-            <Text style={s.emptyOrdersText}>No past orders found.</Text>
-          </View>
         ) : (
           <View style={s.listContainer}>
-            {orders.map((order) => {
+            {liveOrders.length > 0 && (
+              <Text style={s.sectionHeader}>Live Orders</Text>
+            )}
+            {liveOrders.map((order) => {
+              const isExpanded = expandedOrderId === order.id;
+              const statusColors = getStatusColor(order.status);
+              const totalItemsCount = order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+              const subtotal = (order.totalAmount ?? 0) - (order.deliveryFee ?? 0) - (order.tryAndBuyFee ?? 0);
+              return (
+                <Pressable
+                  key={order.id}
+                  style={[s.orderCard, s.orderCardLive]}
+                  onPress={() => toggleOrderExpand(order.id)}
+                  activeOpacity={0.85}
+                >
+                  <View style={s.orderCardHeader}>
+                    <View>
+                      <Text style={s.orderId}>#{order.id.slice(0, 8).toUpperCase()}</Text>
+                      <Text style={s.orderDate}>{formatDate(order.createdAt)}</Text>
+                    </View>
+                    <View style={[s.statusPill, { backgroundColor: statusColors.bg }]}>
+                      <Text style={[s.statusPillText, { color: statusColors.text }]}>
+                        {order.status.replace(/_/g, " ")}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={s.orderSummaryText}>
+                    {totalItemsCount} item{totalItemsCount !== 1 ? "s" : ""} · ₹{formatRupeePrice(subtotal)}
+                    {order.isTryAndBuy ? " · Try & Buy" : ""}
+                  </Text>
+                  {order.status === "ARRIVED" && order.deliveryOtp ? (
+                    <Pressable
+                      style={s.otpBox}
+                      onPress={() =>
+                        Alert.alert(
+                          "Handover OTP",
+                          `${order.deliveryOtp.split("").join("  ")}\n\nShow this to your delivery agent.`,
+                          [{ text: "OK" }]
+                        )
+                      }
+                    >
+                      <Text style={s.otpLabel}>HANDOVER OTP</Text>
+                      <Text style={s.otpCode}>{order.deliveryOtp.split("").join(" ")}</Text>
+                      <Text style={s.otpHint}>Tap to show full-screen</Text>
+                    </Pressable>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+            {pastOrders.length > 0 && (
+              <Text style={[s.sectionHeader, liveOrders.length > 0 && { marginTop: 20 }]}>History</Text>
+            )}
+            {pastOrders.length === 0 && liveOrders.length === 0 && (
+              <View style={s.emptyOrdersCard}>
+                <Ionicons name="receipt-outline" size={44} color="#012a6230" style={{ marginBottom: 12 }} />
+                <Text style={s.emptyOrdersText}>No orders yet.</Text>
+              </View>
+            )}
+            {pastOrders.map((order) => {
               const isExpanded = expandedOrderId === order.id;
               const statusColors = getStatusColor(order.status);
               const totalItemsCount = order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
@@ -309,6 +364,18 @@ const s = StyleSheet.create({
   },
   listContainer: {
     gap: 12,
+  },
+  sectionHeader: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#012a6270",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  orderCardLive: {
+    borderColor: "#fdde59",
+    borderWidth: 1.5,
   },
   emptyOrdersCard: {
     backgroundColor: "#fffef5",
@@ -487,5 +554,33 @@ const s = StyleSheet.create({
     fontWeight: "600",
     flex: 1,
     lineHeight: 14,
+  },
+  otpBox: {
+    backgroundColor: "#fdde59",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 10,
+    alignItems: "center",
+  },
+  otpLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#012a62",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  otpCode: {
+    fontSize: 30,
+    fontWeight: "900",
+    color: "#012a62",
+    letterSpacing: 10,
+  },
+  otpHint: {
+    fontSize: 10,
+    color: "#012a6270",
+    fontWeight: "600",
+    marginTop: 4,
   },
 });

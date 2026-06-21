@@ -18,8 +18,9 @@ const STATUS_META = {
   COLLECTED:        { label: "Collected",         bg: "bg-indigo-100",  text: "text-indigo-800" },
   HANDED_TO_RIDER:  { label: "With Rider",        bg: "bg-indigo-100",  text: "text-indigo-800" },
   OUT_FOR_DELIVERY: { label: "Out for Delivery",  bg: "bg-indigo-200",  text: "text-indigo-900" },
-  ARRIVED:          { label: "Arrived",           bg: "bg-emerald-100", text: "text-emerald-800" },
-  DELIVERED:        { label: "Delivered",         bg: "bg-emerald-200", text: "text-emerald-900" },
+  ARRIVED:              { label: "Arrived",        bg: "bg-emerald-100", text: "text-emerald-800" },
+  TRY_BUY_IN_PROGRESS: { label: "Try & Buy",     bg: "bg-yellow",      text: "text-navy" },
+  DELIVERED:            { label: "Delivered",     bg: "bg-emerald-200", text: "text-emerald-900" },
   RETURNING:        { label: "Returning",         bg: "bg-gray-100",    text: "text-gray-500" },
   RETURNED:         { label: "Returned",          bg: "bg-gray-100",    text: "text-gray-500" },
   REFUNDED:         { label: "Refunded",          bg: "bg-gray-100",    text: "text-gray-500" },
@@ -35,7 +36,7 @@ function smartTime(dateStr) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(!sameYear && { year: "numeric" }) });
 }
 
-const ACTIVE_STATUSES = new Set(["RUNNER_ASSIGNED", "COLLECTED", "HANDED_TO_RIDER", "OUT_FOR_DELIVERY", "ARRIVED"]);
+const ACTIVE_STATUSES = new Set(["RUNNER_ASSIGNED", "COLLECTED", "HANDED_TO_RIDER", "OUT_FOR_DELIVERY", "ARRIVED", "TRY_BUY_IN_PROGRESS"]);
 const DONE_STATUSES   = new Set(["DELIVERED", "RETURNING", "RETURNED", "REFUNDED"]);
 
 function applyFilter(orders, filter) {
@@ -241,7 +242,7 @@ const REQUEST_LABEL = {
   PENDING_INELIGIBLE: "Pending: Request Ineligible",
 };
 
-function StoreTbTab() {
+export function StoreTbTab() {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing]   = useState(null); // productId being submitted
@@ -364,7 +365,6 @@ function StoreTbTab() {
 // ── OrdersBoard ───────────────────────────────────────────────────────────────
 
 export default function OrdersBoard({ storeId }) {
-  const [activeTab, setActiveTab]    = useState("orders"); // "orders" | "trybuy"
   const [orders, setOrders]          = useState([]);
   const [filter, setFilter]          = useState("all");
   const [loading, setLoading]        = useState(true);
@@ -407,7 +407,6 @@ export default function OrdersBoard({ storeId }) {
     };
   }, [storeId]);
 
-  const handleUpdated    = (updated) => setOrders((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)));
   const visible          = applyFilter(orders, filter);
   const pendingCount     = orders.filter((o) => o.status === "PENDING").length;
 
@@ -416,24 +415,7 @@ export default function OrdersBoard({ storeId }) {
       <audio ref={audioRef} src="/chime.mp3" preload="none" />
       {showExport && <ExportModal storeId={storeId} onClose={() => setShowExport(false)} />}
 
-      {/* Top-level tabs */}
-      <div className="flex gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm w-fit mb-5">
-        {[{ key: "orders", label: "Orders" }, { key: "trybuy", label: "Try & Buy" }].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition
-              ${activeTab === t.key ? "bg-navy text-cream" : "text-gray-500 hover:text-navy hover:bg-gray-50"}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "trybuy" && <StoreTbTab />}
-
-      {activeTab === "orders" && (
-        <div>
+      <div>
           {/* Toolbar */}
           <div className="flex items-center justify-between mb-5 gap-3">
             <div className="flex gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
@@ -490,7 +472,7 @@ export default function OrdersBoard({ storeId }) {
           {!loading && !error && visible.length > 0 && view === "grid" && (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {visible.map((order) => (
-                <OrderCard key={order.id} order={order} onUpdated={handleUpdated} onClick={() => setSelected(order)} />
+                <OrderCard key={order.id} order={order} onClick={() => setSelected(order)} />
               ))}
             </div>
           )}
@@ -520,7 +502,6 @@ export default function OrdersBoard({ storeId }) {
             <OrderModal order={selectedOrder} onClose={() => setSelected(null)} />
           )}
         </div>
-      )}
     </div>
   );
 }
