@@ -7,7 +7,8 @@ const STATUS_META = {
   ARRIVED:              { label: "Arrived",         bg: "bg-emerald-100",  text: "text-emerald-800" },
   TRY_BUY_IN_PROGRESS: { label: "Try & Buy",       bg: "bg-yellow",       text: "text-navy" },
   DELIVERED:            { label: "Delivered",       bg: "bg-emerald-200",  text: "text-emerald-900" },
-  RETURNING:         { label: "Returning",          bg: "bg-gray-100",     text: "text-gray-600" },
+  RETURNING:         { label: "Returning",          bg: "bg-orange-100",   text: "text-orange-700" },
+  WITH_RUNNER:       { label: "With Runner",        bg: "bg-orange-200",   text: "text-orange-900" },
   RETURNED:          { label: "Returned",           bg: "bg-gray-100",     text: "text-gray-600" },
   REFUNDED:          { label: "Refunded",           bg: "bg-gray-100",     text: "text-gray-600" },
 };
@@ -22,10 +23,9 @@ function smartTime(dateStr) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(!sameYear && { year: "numeric" }) });
 }
 
-const OTP_STATUSES = new Set(["RUNNER_ASSIGNED", "RETURNING"]);
+const OTP_STATUSES = new Set(["RETURNING"]);
 const OTP_LABELS = {
-  RUNNER_ASSIGNED: "Give to runner:",
-  RETURNING:       "Confirm to runner:",
+  RETURNING: "Confirm to runner:",
 };
 
 export default function OrderCard({ order, onClick }) {

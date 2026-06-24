@@ -20,6 +20,24 @@ export const useAuthStore = create((set) => ({
     set({ user: data.data.user, address: address || "" });
   },
 
+  loginWithCode: async (code) => {
+    const { data } = await api.post("/auth/login-code", { code });
+    await saveToken(data.data.token);
+    set({ user: data.data.user, address: "" });
+  },
+
+  requestOtp: async (phone) => {
+    const { data } = await api.post("/auth/request-otp", { phone });
+    return data.data; // { sent, devOtp }
+  },
+
+  verifyOtp: async (phone, otp) => {
+    const { data } = await api.post("/auth/verify-otp", { phone, otp });
+    await saveToken(data.data.token);
+    const address = await getAddress();
+    set({ user: data.data.user, address: address || "" });
+  },
+
   register: async (payload) => {
     const { data } = await api.post("/auth/register", payload);
     await saveToken(data.data.token);

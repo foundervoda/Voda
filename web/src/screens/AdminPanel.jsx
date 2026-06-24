@@ -10,6 +10,12 @@ import {
   bulkUpdateCategoryTb,
   approveManagerTbRequest,
   denyManagerTbRequest,
+  fetchAdminInventory,
+  fetchAdminRunners,
+  fetchAdminRiders,
+  fetchRunnerOrders,
+  fetchRiderOrders,
+  createPartner,
 } from "../api/admin";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -925,6 +931,430 @@ function TryBuyToggles() {
   );
 }
 
+// ── shared CSV export ─────────────────────────────────────────────────────────
+
+function exportCsv(filename, rows, headers) {
+  const escape = (v) => {
+    const s = v == null ? "" : String(v);
+    return s.includes(",") || s.includes('"') || s.includes("\n")
+      ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(","), ...rows.map((r) => headers.map((h) => escape(r[h])).join(","))];
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+function Inventory() {
+  const [rows, setRows]       = useState(null);
+  const [search, setSearch]   = useState("");
+  const [catFilter, setCat]   = useState("");
+  const [storeFilter, setStore] = useState("");
+  const [tbFilter, setTb]     = useState("");
+
+  useEffect(() => { fetchAdminInventory().then(setRows).catch(console.error); }, []);
+
+  if (!rows) return <div className="text-center py-20 text-navy/40">Loading…</div>;
+
+  const stores     = [...new Set(rows.map((r) => r.store))].sort();
+  const categories = [...new Set(rows.map((r) => r.category))].sort();
+
+  const filtered = rows.filter((r) => {
+    if (search    && !r.name.toLowerCase().includes(search.toLowerCase()) && !r.sku.includes(search.toUpperCase())) return false;
+    if (catFilter && r.category !== catFilter) return false;
+    if (storeFilter && r.store !== storeFilter) return false;
+    if (tbFilter === "eligible"   && r.tbEligible !== true)  return false;
+    if (tbFilter === "ineligible" && r.tbEligible !== false) return false;
+    if (tbFilter === "default"    && r.tbEligible !== null)  return false;
+    return true;
+  });
+
+  function tbLabel(row) {
+    if (row.tbOverride === "ENABLED")  return { label: "Store On",  cls: "bg-emerald-100 text-emerald-800" };
+    if (row.tbOverride === "DISABLED") return { label: "Store Off", cls: "bg-red-100 text-red-700" };
+    if (row.tbEligible === true)  return { label: "Eligible",   cls: "bg-emerald-100 text-emerald-700" };
+    if (row.tbEligible === false) return { label: "Ineligible",  cls: "bg-red-100 text-red-700" };
+    return { label: "Default", cls: "bg-gray-100 text-gray-500" };
+  }
+
+  const csvRows = filtered.map((r) => ({
+    SKU: r.sku, Name: r.name, Store: r.store, Category: r.category,
+    Price: r.price, "Total Stock": r.totalStock, "Variants": r.variantCount,
+    "T&B Status": tbLabel(r).label,
+  }));
+
+  return (
+    <div>
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 mb-4 items-center">
+        <input
+          type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name or SKU…"
+          className="border border-navy/15 rounded-lg px-3 py-1.5 text-sm text-navy focus:outline-none focus:border-navy/40 w-52"
+        />
+        <select value={storeFilter} onChange={(e) => setStore(e.target.value)}
+          className="border border-navy/15 rounded-lg px-3 py-1.5 text-sm text-navy focus:outline-none">
+          <option value="">All Stores</option>
+          {stores.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select value={catFilter} onChange={(e) => setCat(e.target.value)}
+          className="border border-navy/15 rounded-lg px-3 py-1.5 text-sm text-navy focus:outline-none">
+          <option value="">All Categories</option>
+          {categories.map((c) => <option key={c}>{c}</option>)}
+        </select>
+        <select value={tbFilter} onChange={(e) => setTb(e.target.value)}
+          className="border border-navy/15 rounded-lg px-3 py-1.5 text-sm text-navy focus:outline-none">
+          <option value="">All T&amp;B</option>
+          <option value="eligible">Eligible</option>
+          <option value="ineligible">Ineligible</option>
+          <option value="default">Default</option>
+        </select>
+        <span className="text-xs text-navy/40 ml-1">{filtered.length} products</span>
+        <button
+          onClick={() => exportCsv("inventory.csv", csvRows, ["SKU","Name","Store","Category","Price","Total Stock","Variants","T&B Status"])}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-navy text-yellow rounded-lg hover:bg-navy/90 transition"
+        >
+          ↓ Export CSV
+        </button>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-navy/10 bg-white">
+        <table className="w-full text-sm">
+          <thead className="bg-cream border-b border-navy/10">
+            <tr>
+              {["SKU","Name","Store","Category","Stock","Variants","T&B","Price"].map((h) => (
+                <Th key={h}>{h}</Th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => {
+              const tb = tbLabel(r);
+              return (
+                <tr key={r.id} className="border-b border-navy/5 hover:bg-cream/50">
+                  <td className="px-4 py-3 font-mono text-xs text-navy/50">{r.sku}</td>
+                  <td className="px-4 py-3 font-semibold text-navy">{r.name}</td>
+                  <td className="px-4 py-3 text-navy/70">{r.store}</td>
+                  <td className="px-4 py-3 text-navy/60">{r.category}</td>
+                  <td className="px-4 py-3">
+                    <span className={`font-bold ${r.totalStock === 0 ? "text-red-600" : r.totalStock < 5 ? "text-amber-600" : "text-emerald-700"}`}>
+                      {r.totalStock}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-navy/60 text-center">{r.variantCount}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${tb.cls}`}>{tb.label}</span>
+                  </td>
+                  <td className="px-4 py-3 text-navy/70">₹{r.price.toLocaleString()}</td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr><td colSpan={8} className="text-center py-10 text-navy/30">No products match</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── shared Partner table (Runners + Riders) ───────────────────────────────────
+
+function PartnerTable({ fetchList, fetchOrders, idPrefix, roleLabel, role }) {
+  const [people, setPeople]       = useState(null);
+  const [search, setSearch]       = useState("");
+  const [sortKey, setSortKey]     = useState("createdAt");
+  const [sortDir, setSortDir]     = useState("desc");
+  const [selected, setSelected]   = useState(null);
+  const [history, setHistory]     = useState(null);
+  const [histSearch, setHistSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm]           = useState({ phone: "", loginCode: "", name: "" });
+  const [formError, setFormError] = useState(null);
+  const [creating, setCreating]   = useState(false);
+
+  const codePrefix = role === "RUNNER" ? "R" : "D";
+
+  function refresh() { fetchList().then(setPeople).catch(console.error); }
+  useEffect(() => { refresh(); }, [fetchList]);
+
+  function toggleSort(key) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  }
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    setFormError(null);
+    setCreating(true);
+    try {
+      await createPartner({ phone: form.phone, loginCode: form.loginCode, name: form.name, role });
+      setShowCreate(false);
+      setForm({ phone: "", loginCode: "", name: "" });
+      refresh();
+    } catch (err) {
+      setFormError(err?.response?.data?.error?.message ?? "Could not create account");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function openHistory(person) {
+    setSelected(person);
+    setHistory(null);
+    setHistSearch("");
+    fetchOrders(person.id).then(setHistory).catch(console.error);
+  }
+
+  function smartTime(dateStr) {
+    if (!dateStr) return "—";
+    const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+    if (diff < 60)    return `${diff}s ago`;
+    if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  if (!people) return <div className="text-center py-20 text-navy/40">Loading…</div>;
+
+  const filtered = people.filter((p) => {
+    const q = search.toLowerCase();
+    return !q || p.phone?.toLowerCase().includes(q) || p.email?.toLowerCase().includes(q) || p.loginCode?.toLowerCase().includes(q);
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    let va = a[sortKey] ?? ""; let vb = b[sortKey] ?? "";
+    if (sortKey === "lastActive" || sortKey === "createdAt") { va = va ? new Date(va) : 0; vb = vb ? new Date(vb) : 0; }
+    return sortDir === "asc" ? (va < vb ? -1 : 1) : (va > vb ? -1 : 1);
+  });
+
+  const SortTh = ({ k, children }) => (
+    <th
+      onClick={() => toggleSort(k)}
+      className="px-4 py-2.5 text-left text-[11px] font-semibold text-navy/50 uppercase tracking-wider cursor-pointer select-none hover:text-navy"
+    >
+      {children} {sortKey === k ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+    </th>
+  );
+
+  const csvRows = sorted.map((p) => ({
+    ID: p.loginCode ?? "—", Name: p.email ?? "—", Phone: p.phone ?? "—",
+    Joined: new Date(p.createdAt).toLocaleDateString("en-GB"),
+    "Last Active": p.lastActive ? new Date(p.lastActive).toLocaleDateString("en-GB") : "Never",
+  }));
+
+  return (
+    <div className="flex gap-5">
+      {/* Main table */}
+      <div className="flex-1 min-w-0">
+        <div className="flex gap-2 mb-4 items-center">
+          <input
+            type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Search ${roleLabel}s…`}
+            className="border border-navy/15 rounded-lg px-3 py-1.5 text-sm text-navy focus:outline-none focus:border-navy/40 w-56"
+          />
+          <span className="text-xs text-navy/40">{sorted.length} {roleLabel.toLowerCase()}s</span>
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={() => exportCsv(`${roleLabel.toLowerCase()}s.csv`, csvRows, ["ID","Name","Phone","Joined","Last Active"])}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-navy/20 text-navy rounded-lg hover:bg-navy/5 transition"
+            >
+              ↓ Export CSV
+            </button>
+            <button
+              onClick={() => { setShowCreate(true); setFormError(null); setForm({ phone: "", loginCode: "", name: "" }); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-navy text-yellow rounded-lg hover:bg-navy/90 transition"
+            >
+              + New {roleLabel}
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-navy/10 bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-cream border-b border-navy/10">
+              <tr>
+                <SortTh k="loginCode">ID</SortTh>
+                <SortTh k="email">Name / Email</SortTh>
+                <SortTh k="phone">Phone</SortTh>
+                <SortTh k="createdAt">Joined</SortTh>
+                <SortTh k="lastActive">Last Active</SortTh>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((p) => (
+                <tr
+                  key={p.id}
+                  className={`border-b border-navy/5 hover:bg-cream/50 cursor-pointer ${selected?.id === p.id ? "bg-yellow/20" : ""}`}
+                  onClick={() => openHistory(p)}
+                >
+                  <td className="px-4 py-3">
+                    <span className="font-mono font-bold text-navy text-xs bg-navy/8 px-2 py-0.5 rounded">
+                      {p.loginCode ?? <span className="text-navy/30">—</span>}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-navy/80 text-xs">{p.email ?? <span className="text-navy/30 italic">no email</span>}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-navy/70">{p.phone}</td>
+                  <td className="px-4 py-3 text-xs text-navy/50">{smartTime(p.createdAt)}</td>
+                  <td className="px-4 py-3 text-xs">
+                    <span className={p.lastActive ? "text-emerald-700 font-semibold" : "text-navy/30"}>
+                      {smartTime(p.lastActive)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-navy/40">History →</td>
+                </tr>
+              ))}
+              {sorted.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-10 text-navy/30">No {roleLabel.toLowerCase()}s found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Order history drawer */}
+      {selected && (
+        <div className="w-96 shrink-0 bg-white rounded-xl border border-navy/10 flex flex-col max-h-[calc(100vh-12rem)] overflow-hidden">
+          <div className="px-4 py-3 border-b border-navy/10 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-navy/40 uppercase tracking-wider font-semibold">{roleLabel} History</p>
+              <p className="font-bold text-navy text-sm mt-0.5">
+                {selected.loginCode ?? "—"} · {selected.phone}
+              </p>
+            </div>
+            <button onClick={() => setSelected(null)} className="text-navy/30 hover:text-navy text-lg leading-none">✕</button>
+          </div>
+
+          <div className="px-3 py-2 border-b border-navy/10">
+            <input
+              type="text" value={histSearch} onChange={(e) => setHistSearch(e.target.value)}
+              placeholder="Filter orders…"
+              className="w-full border border-navy/15 rounded-lg px-3 py-1.5 text-xs text-navy focus:outline-none focus:border-navy/40"
+            />
+          </div>
+
+          <div className="overflow-y-auto flex-1 divide-y divide-navy/5">
+            {!history ? (
+              <div className="text-center py-10 text-navy/30 text-sm">Loading…</div>
+            ) : history.length === 0 ? (
+              <div className="text-center py-10 text-navy/30 text-sm">No orders yet</div>
+            ) : (
+              history
+                .filter((o) => !histSearch || o.id.toLowerCase().includes(histSearch.toLowerCase()) ||
+                  o.items.some((i) => i.product.name.toLowerCase().includes(histSearch.toLowerCase())))
+                .map((o) => (
+                  <div key={o.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-mono text-[10px] text-navy/40">#{o.id.slice(-6).toUpperCase()}</span>
+                      <StatusBadge status={o.status} />
+                    </div>
+                    <p className="text-xs text-navy/60 mb-0.5">
+                      {o.items.map((i) => i.product.name).join(", ")}
+                    </p>
+                    <p className="text-[10px] text-navy/30">
+                      {new Date(o.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                      {o.items[0]?.product?.store?.name && ` · ${o.items[0].product.store.name}`}
+                    </p>
+                  </div>
+                ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Create modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-navy/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-7">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-bold text-navy text-lg">New {roleLabel}</h2>
+              <button onClick={() => setShowCreate(false)} className="text-navy/30 hover:text-navy text-xl leading-none">✕</button>
+            </div>
+
+            <form onSubmit={handleCreate} className="flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-semibold text-navy/50 uppercase tracking-wider block mb-1">
+                  Name <span className="font-normal normal-case text-navy/30">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Full name"
+                  className="w-full border border-navy/20 rounded-lg px-3 py-2.5 text-sm text-navy focus:outline-none focus:border-navy/50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-navy/50 uppercase tracking-wider block mb-1">Phone *</label>
+                <input
+                  type="tel"
+                  value={form.phone}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="+91 98765 43210"
+                  required
+                  className="w-full border border-navy/20 rounded-lg px-3 py-2.5 text-sm text-navy focus:outline-none focus:border-navy/50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-navy/50 uppercase tracking-wider block mb-1">
+                  {roleLabel} ID Code *
+                </label>
+                <input
+                  type="text"
+                  value={form.loginCode}
+                  onChange={(e) => setForm((f) => ({ ...f, loginCode: e.target.value.toUpperCase() }))}
+                  placeholder={`${codePrefix}000`}
+                  maxLength={4}
+                  required
+                  className="w-full border border-navy/20 rounded-lg px-3 py-2.5 text-sm font-mono font-bold text-navy focus:outline-none focus:border-navy/50 tracking-widest"
+                />
+                <p className="text-[11px] text-navy/40 mt-1">
+                  Must be {codePrefix} followed by 3 digits — this is how they log in
+                </p>
+              </div>
+
+              {formError && <p className="text-red-600 text-sm font-semibold">{formError}</p>}
+
+              <div className="flex gap-3 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(false)}
+                  className="flex-1 py-2.5 text-sm font-semibold text-navy border border-navy/20 rounded-xl hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating}
+                  className="flex-1 py-2.5 text-sm font-semibold bg-navy text-yellow rounded-xl hover:bg-navy/90 transition disabled:opacity-50"
+                >
+                  {creating ? "Creating…" : `Create ${roleLabel}`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Runners() {
+  return <PartnerTable fetchList={fetchAdminRunners} fetchOrders={fetchRunnerOrders} idPrefix="R" roleLabel="Runner" role="RUNNER" />;
+}
+
+function Riders() {
+  return <PartnerTable fetchList={fetchAdminRiders} fetchOrders={fetchRiderOrders} idPrefix="D" roleLabel="Rider" role="RIDER" />;
+}
+
 // ── AdminPanel shell ──────────────────────────────────────────────────────────
 
 const TABS = [
@@ -933,6 +1363,9 @@ const TABS = [
   { key: "customers",  label: "Customers" },
   { key: "stores",     label: "Stores" },
   { key: "trybuy",     label: "Try & Buy" },
+  { key: "inventory",  label: "Inventory" },
+  { key: "runners",    label: "Runners" },
+  { key: "riders",     label: "Riders" },
 ];
 
 export default function AdminPanel() {
@@ -977,6 +1410,9 @@ export default function AdminPanel() {
         <Stores onFilterOrders={(storeId) => drillToOrders({ storeId })} />
       )}
       {tab === "trybuy"    && <TryBuyToggles />}
+      {tab === "inventory" && <Inventory />}
+      {tab === "runners"   && <Runners />}
+      {tab === "riders"    && <Riders />}
     </div>
   );
 }

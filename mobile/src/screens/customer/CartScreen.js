@@ -1,10 +1,6 @@
 import { View, Text, FlatList, Pressable, Image, StyleSheet } from "react-native";
 import { useOrderStore } from "../../store/useOrderStore";
-
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
+import { formatRupees as formatRupeePrice } from "../../utils/price";
 
 export default function CartScreen({ navigation }) {
   const { cart, updateQuantity, removeFromCart } = useOrderStore();

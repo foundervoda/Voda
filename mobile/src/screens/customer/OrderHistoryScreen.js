@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { toRupees, formatRupees } from "../../utils/price";
 import {
   View,
   Text,
@@ -25,10 +26,7 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
+const formatRupeePrice = formatRupees;
 
 const formatDate = (dateStr) => {
   try {
@@ -263,7 +261,7 @@ export default function OrderHistoryScreen({ route, navigation }) {
                           </View>
                           <Text style={s.receiptItemQty}>× {item.quantity}</Text>
                           <Text style={s.receiptItemPrice}>
-                            ₹{formatRupeePrice((item.product?.price ?? 0) * item.quantity)}
+                            ₹{formatRupeePrice(toRupees(item.product?.price ?? 0) * item.quantity)}
                           </Text>
                         </View>
                       ))}

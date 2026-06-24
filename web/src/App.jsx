@@ -6,11 +6,13 @@ import LoginScreen from "./screens/LoginScreen";
 import OrdersBoard, { StoreTbTab } from "./screens/OrdersBoard";
 import StockView from "./screens/StockView";
 import AdminPanel from "./screens/AdminPanel";
+import KioskScreen from "./screens/KioskScreen";
 
 const TABS = [
   { key: "orders", label: "Orders"    },
   { key: "stock",  label: "Stock"     },
   { key: "trybuy", label: "Try & Buy" },
+  { key: "kiosk",  label: "Kiosk"     },
 ];
 
 function SignOutButton({ onConfirm }) {
@@ -73,6 +75,7 @@ export default function App() {
   const [booting, setBooting]     = useState(true);
   const [connected, setConnected] = useState(false);
   const [tab, setTab]             = useState("orders");
+  const [mismatchAlert, setMismatchAlert] = useState(null);
 
   useEffect(() => {
     if (getToken()) {
@@ -90,11 +93,14 @@ export default function App() {
     connectSocket();
     const onConnect    = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
-    socket.on("connect",    onConnect);
-    socket.on("disconnect", onDisconnect);
+    const onMismatch = (payload) => setMismatchAlert(payload);
+    socket.on("connect",        onConnect);
+    socket.on("disconnect",     onDisconnect);
+    socket.on("kiosk_mismatch", onMismatch);
     return () => {
-      socket.off("connect",    onConnect);
-      socket.off("disconnect", onDisconnect);
+      socket.off("connect",        onConnect);
+      socket.off("disconnect",     onDisconnect);
+      socket.off("kiosk_mismatch", onMismatch);
     };
   }, [user?.storeId]);
 
@@ -162,6 +168,37 @@ export default function App() {
       {tab === "orders" && <OrdersBoard storeId={user.storeId} />}
       {tab === "stock"  && <StockView   storeId={user.storeId} />}
       {tab === "trybuy" && <div className="p-5 max-w-6xl mx-auto"><StoreTbTab /></div>}
+      {tab === "kiosk"  && <KioskScreen />}
+
+      {/* Kiosk mismatch alert — shown over any tab */}
+      {mismatchAlert && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-navy/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 text-center">
+            <div className="text-5xl mb-4">⚠️</div>
+            <h2 className="text-2xl font-black text-red-600 mb-1">Kiosk Mismatch</h2>
+            <p className="text-navy/60 text-sm mb-1">Order <span className="font-mono font-bold">#{mismatchAlert.shortId}</span> · {mismatchAlert.mode}</p>
+            <p className="text-navy/50 text-xs mb-6">Wrong item scanned at the return kiosk</p>
+            <div className="grid grid-cols-2 gap-4 mb-6 text-left">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+                <p className="text-emerald-700 text-xs font-bold uppercase tracking-widest mb-1">Expected</p>
+                <p className="text-emerald-900 font-bold text-sm">{mismatchAlert.expected?.name}</p>
+                <p className="text-emerald-700 text-sm">{mismatchAlert.expected?.variant}</p>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                <p className="text-red-700 text-xs font-bold uppercase tracking-widest mb-1">Scanned</p>
+                <p className="text-red-900 font-bold text-sm">{mismatchAlert.scanned?.name}</p>
+                <p className="text-red-700 text-sm">{mismatchAlert.scanned?.variant}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setMismatchAlert(null)}
+              className="w-full bg-navy text-yellow font-black rounded-xl py-4"
+            >
+              Acknowledged — Dismiss
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

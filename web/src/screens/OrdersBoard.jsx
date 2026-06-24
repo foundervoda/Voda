@@ -21,7 +21,8 @@ const STATUS_META = {
   ARRIVED:              { label: "Arrived",        bg: "bg-emerald-100", text: "text-emerald-800" },
   TRY_BUY_IN_PROGRESS: { label: "Try & Buy",     bg: "bg-yellow",      text: "text-navy" },
   DELIVERED:            { label: "Delivered",     bg: "bg-emerald-200", text: "text-emerald-900" },
-  RETURNING:        { label: "Returning",         bg: "bg-gray-100",    text: "text-gray-500" },
+  RETURNING:        { label: "Returning",         bg: "bg-orange-100",  text: "text-orange-700" },
+  WITH_RUNNER:      { label: "With Runner",       bg: "bg-orange-200",  text: "text-orange-900" },
   RETURNED:         { label: "Returned",          bg: "bg-gray-100",    text: "text-gray-500" },
   REFUNDED:         { label: "Refunded",          bg: "bg-gray-100",    text: "text-gray-500" },
 };
@@ -37,7 +38,7 @@ function smartTime(dateStr) {
 }
 
 const ACTIVE_STATUSES = new Set(["RUNNER_ASSIGNED", "COLLECTED", "HANDED_TO_RIDER", "OUT_FOR_DELIVERY", "ARRIVED", "TRY_BUY_IN_PROGRESS"]);
-const DONE_STATUSES   = new Set(["DELIVERED", "RETURNING", "RETURNED", "REFUNDED"]);
+const DONE_STATUSES   = new Set(["DELIVERED", "RETURNING", "WITH_RUNNER", "RETURNED", "REFUNDED"]);
 
 function applyFilter(orders, filter) {
   if (filter === "all")    return orders;

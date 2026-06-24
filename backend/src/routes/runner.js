@@ -12,14 +12,14 @@ const ORDER_INCLUDE = {
   customer: { select: { id: true, email: true, phone: true } },
 };
 
-// GET /api/runner/orders — PENDING orders to claim + RETURNING orders needing return to store
+// GET /api/runner/orders — available collection jobs (PENDING) + open return jobs (RETURNING / WITH_RUNNER)
 router.get(
   "/orders",
   requireAuth,
   requireRole("RUNNER"),
   asyncHandler(async (req, res) => {
     const orders = await prisma.order.findMany({
-      where: { status: { in: ["PENDING", "RETURNING"] } },
+      where: { status: { in: ["PENDING", "RETURNING", "WITH_RUNNER"] } },
       include: ORDER_INCLUDE,
       orderBy: { createdAt: "desc" },
     });
@@ -27,7 +27,7 @@ router.get(
   })
 );
 
-// GET /api/runner/orders/mine — runner's active in-progress orders
+// GET /api/runner/orders/mine — runner's active in-progress orders (collection + return tracking)
 router.get(
   "/orders/mine",
   requireAuth,
@@ -66,7 +66,22 @@ router.get(
   })
 );
 
-// POST /api/runner/orders/:id/assign — PENDING → RUNNER_ASSIGNED + store→runner OTP
+// GET /api/runner/orders/:id — single order (used by CollectionScreen to check kioskVerified)
+router.get(
+  "/orders/:id",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: ORDER_INCLUDE,
+    });
+    if (!order) return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    res.json({ data: { order }, error: null });
+  })
+);
+
+// POST /api/runner/orders/:id/assign — PENDING → RUNNER_ASSIGNED (kiosk handles physical handoff, no OTP needed here)
 router.post(
   "/orders/:id/assign",
   requireAuth,
@@ -83,10 +98,9 @@ router.post(
       return res.status(409).json({ data: null, error: { message: "Order is no longer available", code: "CONFLICT" } });
     }
 
-    const otp = genOtp();
     const order = await prisma.order.update({
       where: { id: req.params.id },
-      data: { status: "RUNNER_ASSIGNED", runnerId: req.user.id, deliveryOtp: otp },
+      data: { status: "RUNNER_ASSIGNED", runnerId: req.user.id, deliveryOtp: null, kioskVerified: false },
       include: ORDER_INCLUDE,
     });
 
@@ -99,13 +113,12 @@ router.post(
   })
 );
 
-// POST /api/runner/orders/:id/collect — verify store→runner OTP → COLLECTED + generate runner→rider OTP
+// POST /api/runner/orders/:id/collect — kiosk handles physical verification; just mark COLLECTED + generate runner→rider OTP
 router.post(
   "/orders/:id/collect",
   requireAuth,
   requireRole("RUNNER"),
   asyncHandler(async (req, res) => {
-    const { otp } = req.body;
     const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
@@ -116,8 +129,8 @@ router.post(
     if (existing.status !== "RUNNER_ASSIGNED") {
       return res.status(409).json({ data: null, error: { message: "Order cannot be collected from its current status", code: "CONFLICT" } });
     }
-    if (!otp || existing.deliveryOtp !== String(otp).trim()) {
-      return res.status(400).json({ data: null, error: { message: "Incorrect store OTP", code: "INVALID_OTP" } });
+    if (!existing.kioskVerified) {
+      return res.status(403).json({ data: null, error: { message: "Kiosk verification required before collecting", code: "KIOSK_NOT_VERIFIED" } });
     }
 
     const nextOtp = genOtp(); // runner→rider OTP
@@ -159,79 +172,6 @@ router.post(
 
     const io = req.app.get("io");
     io.to(`order:${order.id}`).emit("order_update", { order });
-
-    res.json({ data: { order }, error: null });
-  })
-);
-
-// POST /api/runner/orders/:id/accept-return — verify rider→runner OTP, generate runner→store OTP
-router.post(
-  "/orders/:id/accept-return",
-  requireAuth,
-  requireRole("RUNNER"),
-  asyncHandler(async (req, res) => {
-    const { otp } = req.body;
-    const existing = await prisma.order.findUnique({
-      where: { id: req.params.id },
-      include: { items: { include: { product: true } } },
-    });
-    if (!existing) {
-      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
-    }
-    if (existing.status !== "RETURNING") {
-      return res.status(409).json({ data: null, error: { message: "Order is not awaiting return", code: "CONFLICT" } });
-    }
-    if (!otp || existing.deliveryOtp !== String(otp).trim()) {
-      return res.status(400).json({ data: null, error: { message: "Incorrect rider OTP", code: "INVALID_OTP" } });
-    }
-
-    const storeOtp = genOtp(); // runner→store OTP
-    const order = await prisma.order.update({
-      where: { id: req.params.id },
-      data: { deliveryOtp: storeOtp },
-      include: ORDER_INCLUDE,
-    });
-
-    const storeId = existing.items[0]?.product?.storeId;
-    const io = req.app.get("io");
-    io.to(`order:${order.id}`).emit("order_update", { order });
-    if (storeId) io.to(`store:${storeId}`).emit("order_update", { order });
-
-    res.json({ data: { order }, error: null });
-  })
-);
-
-// POST /api/runner/orders/:id/complete-return — verify runner→store OTP → RETURNED
-router.post(
-  "/orders/:id/complete-return",
-  requireAuth,
-  requireRole("RUNNER"),
-  asyncHandler(async (req, res) => {
-    const { otp } = req.body;
-    const existing = await prisma.order.findUnique({
-      where: { id: req.params.id },
-      include: { items: { include: { product: true } } },
-    });
-    if (!existing) {
-      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
-    }
-    if (existing.status !== "RETURNING") {
-      return res.status(409).json({ data: null, error: { message: "Order is not awaiting return", code: "CONFLICT" } });
-    }
-    if (!otp || existing.deliveryOtp !== String(otp).trim()) {
-      return res.status(400).json({ data: null, error: { message: "Incorrect store OTP", code: "INVALID_OTP" } });
-    }
-
-    const order = await prisma.order.update({
-      where: { id: req.params.id },
-      data: { status: "RETURNED", deliveryOtp: null },
-      include: ORDER_INCLUDE,
-    });
-
-    const storeId = existing.items[0]?.product?.storeId;
-    const io = req.app.get("io");
-    io.to(`order:${order.id}`).emit("order_update", { order });
-    if (storeId) io.to(`store:${storeId}`).emit("order_update", { order });
 
     res.json({ data: { order }, error: null });
   })

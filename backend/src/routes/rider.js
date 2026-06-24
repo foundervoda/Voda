@@ -216,10 +216,10 @@ router.post(
       return res.status(400).json({ data: null, error: { message: "Incorrect customer return OTP", code: "INVALID_OTP" } });
     }
 
-    const riderRunnerOtp = genOtp();
+    const runnerRiderOtp = genOtp(); // runner shows this to rider at the kiosk
     const order = await prisma.order.update({
       where: { id: req.params.id },
-      data: { status: "RETURNING", deliveryOtp: riderRunnerOtp },
+      data: { status: "RETURNING", deliveryOtp: runnerRiderOtp },
       include: ORDER_INCLUDE,
     });
 
@@ -227,12 +227,43 @@ router.post(
 
     const io = req.app.get("io");
     io.to(`order:${order.id}`).emit("order_update", { order: enriched });
+    io.to(`user:${order.customerId}`).emit("refund_initiated", { orderId: order.id });
+    io.to(`user:${order.customerId}`).emit("order_update", { order: enriched });
     io.to("runners").emit("new_order", { order: enriched });
     res.json({ data: { order: enriched }, error: null });
   })
 );
 
-// POST /api/rider/orders/:id/complete-return — RETURNING → RETURNED
+// POST /api/rider/orders/:id/confirm-runner-handoff — rider enters runner's OTP at kiosk → WITH_RUNNER (rider released)
+router.post(
+  "/orders/:id/confirm-runner-handoff",
+  requireAuth,
+  requireRole("RIDER"),
+  asyncHandler(async (req, res) => {
+    const { otp } = req.body;
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    if (existing.riderId !== req.user.id) return res.status(403).json({ data: null, error: { message: "Not your order", code: "FORBIDDEN" } });
+    if (existing.status !== "RETURNING") return res.status(409).json({ data: null, error: { message: "Order is not in RETURNING state", code: "CONFLICT" } });
+    if (!otp || existing.deliveryOtp !== String(otp).trim()) return res.status(400).json({ data: null, error: { message: "Incorrect runner OTP", code: "INVALID_OTP" } });
+
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status: "WITH_RUNNER", deliveryOtp: null },
+      include: ORDER_INCLUDE,
+    });
+
+    const enriched = enrichOrderWithFees(order, order.customer?.email);
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order: enriched });
+    io.to(`user:${order.customerId}`).emit("order_update", { order: enriched });
+    if (order.runnerId) io.to(`user:${order.runnerId}`).emit("order_update", { order: enriched });
+
+    res.json({ data: { order: enriched }, error: null });
+  })
+);
+
+// POST /api/rider/orders/:id/complete-return — RETURNING → RETURNED (legacy, now handled by kiosk)
 router.post(
   "/orders/:id/complete-return",
   requireAuth,

@@ -37,7 +37,7 @@ export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const isGoldSubscriber = user?.email?.toLowerCase().includes("gold");
+  const isGoldSubscriber = !!(user?.email?.toLowerCase() ?? "").includes("gold");
 
   const handleToggleSubscription = async () => {
     setLoading(true);

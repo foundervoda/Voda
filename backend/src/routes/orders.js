@@ -86,7 +86,7 @@ router.post(
     const storeId = storeIds[0];
 
     // Revalidate Try & Buy eligibility on the server
-    const isGold = req.user.email.toLowerCase().includes("gold");
+    const isGold = !!(req.user.email?.toLowerCase() ?? "").includes("gold");
     const hasEligible = variants.some((v) => getProductEligibility(v.product, v.product.store));
 
     if (req.body.isTryAndBuy && !hasEligible) {

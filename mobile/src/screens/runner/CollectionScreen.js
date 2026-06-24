@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,10 +7,10 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
-  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../../api/client";
 
 export default function CollectionScreen({ route, navigation }) {
@@ -18,10 +18,19 @@ export default function CollectionScreen({ route, navigation }) {
   const { order } = route.params;
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(new Set());
-  const [otpInput, setOtpInput] = useState("");
+  const [kioskDone, setKioskDone] = useState(false);
+
+  const fetchKioskStatus = useCallback(async () => {
+    try {
+      const { data } = await api.get(`/runner/orders/${order.id}`);
+      setKioskDone(data.data.order?.kioskVerified ?? false);
+    } catch {}
+  }, [order.id]);
+
+  useFocusEffect(useCallback(() => { fetchKioskStatus(); }, [fetchKioskStatus]));
 
   const allChecked = order.items.length > 0 && checked.size === order.items.length;
-  const canCollect = allChecked && otpInput.trim().length === 6;
+  const canCollect = allChecked && kioskDone;
 
   function toggleItem(id) {
     setChecked((prev) => {
@@ -32,9 +41,13 @@ export default function CollectionScreen({ route, navigation }) {
   }
 
   async function markCollected() {
+    if (!kioskDone) {
+      Alert.alert("Kiosk scan required", `Please scan order #${order.id.slice(-6).toUpperCase()} at the kiosk before collecting.`);
+      return;
+    }
     setLoading(true);
     try {
-      const { data } = await api.post(`/runner/orders/${order.id}/collect`, { otp: otpInput.trim() });
+      const { data } = await api.post(`/runner/orders/${order.id}/collect`);
       navigation.replace("Handover", { order: data.data.order });
     } catch (err) {
       Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to mark as collected");
@@ -47,7 +60,7 @@ export default function CollectionScreen({ route, navigation }) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.title}>Collect Items</Text>
-        <Text style={styles.subtitle}>Verify all items before confirming</Text>
+        <Text style={styles.subtitle}>Verify all items are in the package</Text>
       </View>
 
       <View style={styles.storeBox}>
@@ -55,7 +68,30 @@ export default function CollectionScreen({ route, navigation }) {
         <Text style={styles.storeAddr}>{order.deliveryAddr}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 100 }]}>
+      <View style={[styles.kioskBanner, kioskDone ? styles.kioskDone : styles.kioskPending]}>
+        <Ionicons
+          name={kioskDone ? "checkmark-circle" : "scan-outline"}
+          size={18}
+          color={kioskDone ? "#16a34a" : "#b45309"}
+        />
+        <View style={{ flex: 1, marginLeft: 10 }}>
+          <Text style={[styles.kioskBannerTitle, { color: kioskDone ? "#14532d" : "#78350f" }]}>
+            {kioskDone ? "Kiosk scan complete" : "Kiosk scan required"}
+          </Text>
+          <Text style={[styles.kioskBannerSub, { color: kioskDone ? "#16a34a" : "#b45309" }]}>
+            {kioskDone
+              ? "All items verified at the kiosk"
+              : `Go to the kiosk and enter order #${order.id.slice(-6).toUpperCase()}`}
+          </Text>
+        </View>
+        {!kioskDone && (
+          <Pressable onPress={fetchKioskStatus} hitSlop={8}>
+            <Ionicons name="refresh" size={18} color="#b45309" />
+          </Pressable>
+        )}
+      </View>
+
+      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 80 }]}>
         <Text style={styles.sectionLabel}>ITEMS CHECKLIST</Text>
         {order.items.map((item) => {
           const isChecked = checked.has(item.id);
@@ -79,16 +115,6 @@ export default function CollectionScreen({ route, navigation }) {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Text style={styles.otpLabel}>ENTER STORE OTP</Text>
-        <TextInput
-          style={styles.otpInput}
-          placeholder="6-digit code from store"
-          placeholderTextColor="#012a6240"
-          keyboardType="number-pad"
-          maxLength={6}
-          value={otpInput}
-          onChangeText={setOtpInput}
-        />
         <Pressable
           style={[styles.btn, (!canCollect || loading) && styles.btnDisabled]}
           onPress={markCollected}
@@ -100,8 +126,8 @@ export default function CollectionScreen({ route, navigation }) {
             <Text style={styles.btnText}>
               {!allChecked
                 ? `Check all items (${checked.size}/${order.items.length})`
-                : otpInput.trim().length < 6
-                ? "Enter store OTP to continue"
+                : !kioskDone
+                ? "Kiosk scan required first"
                 : "Mark as Collected"}
             </Text>
           )}
@@ -126,6 +152,20 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: "700", color: S },
   subtitle: { fontSize: 13, color: "#888", marginTop: 2 },
   storeBox: { backgroundColor: S, marginHorizontal: 16, marginTop: 14, borderRadius: 10, padding: 14 },
+  kioskBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+  },
+  kioskDone: { backgroundColor: "#f0fdf4", borderColor: "#86efac" },
+  kioskPending: { backgroundColor: "#fffbeb", borderColor: "#fcd34d" },
+  kioskBannerTitle: { fontSize: 13, fontWeight: "700" },
+  kioskBannerSub: { fontSize: 11, marginTop: 1 },
   storeLabel: { fontSize: 10, fontWeight: "700", color: Y, letterSpacing: 1, marginBottom: 4 },
   storeAddr: { fontSize: 15, fontWeight: "600", color: "#fff" },
   body: { padding: 16 },
@@ -149,10 +189,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  checkboxChecked: {
-    backgroundColor: S,
-    borderColor: S,
-  },
+  checkboxChecked: { backgroundColor: S, borderColor: S },
   itemName: { fontSize: 15, fontWeight: "600", color: S },
   itemNameChecked: { opacity: 0.4 },
   itemVariant: { fontSize: 13, color: "#777", marginTop: 2 },
@@ -165,21 +202,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fdf9ea",
     borderTopWidth: 1,
     borderColor: "#e8e0cc",
-  },
-  otpLabel: { fontSize: 10, fontWeight: "700", color: S, letterSpacing: 1, opacity: 0.6, marginBottom: 6 },
-  otpInput: {
-    borderWidth: 1.5,
-    borderColor: S,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    fontSize: 20,
-    color: S,
-    fontWeight: "800",
-    textAlign: "center",
-    letterSpacing: 6,
-    backgroundColor: "#fff",
-    marginBottom: 10,
   },
   btn: { backgroundColor: Y, borderRadius: 10, paddingVertical: 14, alignItems: "center" },
   btnDisabled: { opacity: 0.5 },

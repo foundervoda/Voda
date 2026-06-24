@@ -62,7 +62,7 @@ export default function VodaGoldScreen({ navigation }) {
   const { user, updateProfile } = useAuthStore();
   const [loading, setLoading] = useState(false);
 
-  const isGold = !!user?.email?.toLowerCase().includes("gold");
+  const isGold = !!(user?.email?.toLowerCase() ?? "").includes("gold");
 
   const handleToggleSubscription = async () => {
     setLoading(true);

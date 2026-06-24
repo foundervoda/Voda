@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #fdf9ea;
+  --color-navy: #012a62;
+  --color-yellow: #fdde59;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+input {
+  user-select: text;
+}

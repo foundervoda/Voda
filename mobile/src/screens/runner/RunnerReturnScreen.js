@@ -1,50 +1,39 @@
-import { useState } from "react";
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, ActivityIndicator, TextInput } from "react-native";
+import { useState, useEffect, useCallback } from "react";
+import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../../api/client";
+import { useSocket } from "../../api/SocketContext";
 
 export default function RunnerReturnScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
+  const socket = useSocket();
   const { order: initialOrder } = route.params;
   const [order, setOrder] = useState(initialOrder);
-  const [step, setStep] = useState(1); // 1: enter rider OTP, 2: enter store OTP
-  const [riderOtp, setRiderOtp] = useState("");
-  const [storeOtp, setStoreOtp] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  async function acceptReturn() {
-    if (riderOtp.trim().length !== 6) {
-      Alert.alert("Error", "Enter the 6-digit code from the rider");
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data } = await api.post(`/runner/orders/${order.id}/accept-return`, { otp: riderOtp.trim() });
-      setOrder(data.data.order);
-      setStoreOtp("");
-      setStep(2);
-    } catch (err) {
-      Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to accept return");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const phase = order.status === "WITH_RUNNER" ? 2 : 1;
 
-  async function completeReturn() {
-    if (storeOtp.trim().length !== 6) {
-      Alert.alert("Error", "Enter the 6-digit code from the store");
-      return;
-    }
-    setLoading(true);
+  // Refresh order on focus to pick up status changes
+  const refresh = useCallback(async () => {
     try {
-      await api.post(`/runner/orders/${order.id}/complete-return`, { otp: storeOtp.trim() });
-      navigation.popToTop();
-    } catch (err) {
-      Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to complete return");
-    } finally {
-      setLoading(false);
-    }
-  }
+      const { data } = await api.get(`/runner/orders/${order.id}`);
+      if (data.data.order) setOrder(data.data.order);
+    } catch {}
+  }, [order.id]);
+
+  useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
+
+  // Live socket update
+  useEffect(() => {
+    if (!socket) return;
+    socket.emit("join_order_room", order.id);
+    const handler = ({ order: updated }) => {
+      if (updated?.id === order.id) setOrder(updated);
+    };
+    socket.on("order_update", handler);
+    return () => socket.off("order_update", handler);
+  }, [socket, order.id]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -53,31 +42,22 @@ export default function RunnerReturnScreen({ route, navigation }) {
           <Text style={styles.back}>← Back</Text>
         </Pressable>
         <Text style={styles.title}>Return Job</Text>
-        <View style={{ width: 50 }} />
+        <Text style={styles.orderId}>#{order.id.slice(-6).toUpperCase()}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 110 }]}>
-        <View style={styles.badge}>
-          <Text style={styles.badgeIcon}>↩</Text>
-          <Text style={styles.badgeText}>Return to Store</Text>
-        </View>
-
+      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 80 }]}>
         {/* Step indicators */}
         <View style={styles.steps}>
-          <View style={[styles.stepDot, step >= 1 && styles.stepDotActive]}>
-            <Text style={[styles.stepNum, step >= 1 && styles.stepNumActive]}>1</Text>
+          <View style={[styles.stepDot, styles.stepDotActive]}>
+            <Text style={styles.stepNumActive}>{phase === 2 ? "✓" : "1"}</Text>
           </View>
-          <View style={[styles.stepLine, step >= 2 && styles.stepLineActive]} />
-          <View style={[styles.stepDot, step >= 2 && styles.stepDotActive]}>
-            <Text style={[styles.stepNum, step >= 2 && styles.stepNumActive]}>2</Text>
+          <View style={[styles.stepLine, phase === 2 && styles.stepLineActive]} />
+          <View style={[styles.stepDot, phase === 2 && styles.stepDotActive]}>
+            <Text style={[styles.stepNum, phase === 2 && styles.stepNumActive]}>2</Text>
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>COLLECT FROM (DELIVERY ADDRESS)</Text>
-          <Text style={styles.value}>{order.deliveryAddr}</Text>
-        </View>
-
+        {/* Items */}
         <View style={styles.section}>
           <Text style={styles.label}>ITEMS TO RETURN</Text>
           {order.items.map((item) => (
@@ -93,66 +73,48 @@ export default function RunnerReturnScreen({ route, navigation }) {
           ))}
         </View>
 
-        {step === 1 && (
+        {phase === 1 && (
           <View style={styles.otpPanel}>
-            <Text style={styles.otpPanelTitle}>Step 1: Collect from Rider</Text>
+            <Text style={styles.otpPanelTitle}>Step 1 — Show this to the rider</Text>
             <Text style={styles.otpPanelDesc}>
-              Get the package from the rider. Enter the code displayed on the rider's screen.
+              Meet the rider at the return kiosk. Show them this code — they'll enter it on their phone to hand over the package.
             </Text>
-            <Text style={styles.otpLabel}>RIDER HANDOFF CODE</Text>
-            <TextInput
-              style={styles.otpInput}
-              placeholder="6-digit code"
-              placeholderTextColor="#012a6240"
-              keyboardType="number-pad"
-              maxLength={6}
-              value={riderOtp}
-              onChangeText={setRiderOtp}
-              autoFocus
-            />
+            {order.deliveryOtp ? (
+              <>
+                <Text style={styles.otpLabel}>RIDER CONFIRMATION CODE</Text>
+                <View style={styles.otpBox}>
+                  <Text style={styles.otpCode}>{order.deliveryOtp}</Text>
+                </View>
+                <Text style={styles.otpHint}>Waiting for rider to confirm…</Text>
+              </>
+            ) : (
+              <Text style={styles.otpHint}>Waiting for OTP to generate…</Text>
+            )}
           </View>
         )}
 
-        {step === 2 && (
-          <View style={styles.otpPanel}>
-            <Text style={styles.otpPanelTitle}>Step 2: Return to Store</Text>
+        {phase === 2 && (
+          <View style={[styles.otpPanel, styles.otpPanelReady]}>
+            <Ionicons name="checkmark-circle" size={32} color="#16a34a" style={{ marginBottom: 8 }} />
+            <Text style={styles.otpPanelTitle}>Step 2 — Rider confirmed!</Text>
             <Text style={styles.otpPanelDesc}>
-              Bring the package to the store. The store will see a code on their screen — ask them for it and enter it below.
+              The rider has handed over the package. Now go to the kiosk and scan all items to log them back into store inventory.
             </Text>
-            <Text style={styles.otpLabel}>STORE CONFIRMATION CODE</Text>
-            <TextInput
-              style={styles.otpInput}
-              placeholder="6-digit code"
-              placeholderTextColor="#012a6240"
-              keyboardType="number-pad"
-              maxLength={6}
-              value={storeOtp}
-              onChangeText={setStoreOtp}
-              autoFocus
-            />
+            <View style={styles.kioskIdBox}>
+              <Text style={styles.kioskIdLabel}>ENTER THIS AT THE KIOSK</Text>
+              <Text style={styles.kioskIdCode}>#{order.id.slice(-6).toUpperCase()}</Text>
+            </View>
           </View>
         )}
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        {step === 1 ? (
-          <Pressable
-            style={[styles.btn, (riderOtp.trim().length !== 6 || loading) && styles.btnDisabled]}
-            onPress={acceptReturn}
-            disabled={riderOtp.trim().length !== 6 || loading}
-          >
-            {loading ? <ActivityIndicator color={S} /> : <Text style={styles.btnText}>Collect from Rider ✓</Text>}
+      {phase === 2 && (
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+          <Pressable style={styles.btn} onPress={() => navigation.popToTop()}>
+            <Text style={styles.btnText}>Done — Back to Dashboard</Text>
           </Pressable>
-        ) : (
-          <Pressable
-            style={[styles.btn, (storeOtp.trim().length !== 6 || loading) && styles.btnDisabled]}
-            onPress={completeReturn}
-            disabled={storeOtp.trim().length !== 6 || loading}
-          >
-            {loading ? <ActivityIndicator color={S} /> : <Text style={styles.btnText}>Items Returned to Store ✓</Text>}
-          </Pressable>
-        )}
-      </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -171,80 +133,50 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "#e8e0cc",
   },
-  back: { fontSize: 15, color: S, fontWeight: "600" },
+  back: { fontSize: 15, color: S, fontWeight: "600", width: 60 },
   title: { fontSize: 18, fontWeight: "700", color: S },
+  orderId: { fontSize: 13, fontWeight: "900", color: S, fontVariant: ["tabular-nums"] },
   body: { padding: 16 },
-  badge: {
-    backgroundColor: "#fff3e0",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-  badgeIcon: { fontSize: 24 },
-  badgeText: { fontSize: 16, fontWeight: "700", color: "#e65100" },
-  steps: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-    gap: 0,
-  },
+  steps: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginBottom: 24 },
   stepDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#e8e0cc",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "#e8e0cc", alignItems: "center", justifyContent: "center",
   },
   stepDotActive: { backgroundColor: S },
   stepNum: { fontSize: 13, fontWeight: "800", color: "#aaa" },
-  stepNumActive: { color: Y },
+  stepNumActive: { fontSize: 13, fontWeight: "800", color: Y },
   stepLine: { flex: 1, height: 2, backgroundColor: "#e8e0cc", maxWidth: 60 },
   stepLineActive: { backgroundColor: S },
   section: { marginBottom: 22 },
   label: { fontSize: 10, fontWeight: "700", color: S, letterSpacing: 1, opacity: 0.5, marginBottom: 6 },
-  value: { fontSize: 15, fontWeight: "500", color: S },
   itemRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
   qty: { fontSize: 14, fontWeight: "700", color: S, width: 28, marginRight: 8 },
   itemName: { fontSize: 14, fontWeight: "600", color: S },
   itemVariant: { fontSize: 12, color: "#777", marginTop: 2 },
   otpPanel: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#e8e0cc",
-    marginBottom: 12,
+    backgroundColor: "#fff", borderRadius: 14,
+    padding: 16, borderWidth: 1, borderColor: "#e8e0cc", marginBottom: 12,
   },
+  otpPanelReady: { borderColor: "#86efac", backgroundColor: "#f0fdf4" },
   otpPanelTitle: { fontSize: 15, fontWeight: "800", color: S, marginBottom: 6 },
   otpPanelDesc: { fontSize: 12, color: "#666", lineHeight: 18, marginBottom: 14 },
-  otpLabel: { fontSize: 10, fontWeight: "700", color: S, letterSpacing: 1, opacity: 0.6, marginBottom: 6 },
-  otpInput: {
-    borderWidth: 1.5,
-    borderColor: S,
-    borderRadius: 10,
-    paddingVertical: 10,
-    fontSize: 22,
-    color: S,
-    fontWeight: "800",
-    textAlign: "center",
-    letterSpacing: 8,
-    backgroundColor: "#fdf9ea",
+  otpLabel: { fontSize: 10, fontWeight: "700", color: S, letterSpacing: 1, opacity: 0.6, marginBottom: 8 },
+  otpBox: {
+    backgroundColor: S, borderRadius: 12, paddingVertical: 16, paddingHorizontal: 24,
+    alignItems: "center", marginBottom: 10,
   },
+  otpCode: { fontSize: 36, fontWeight: "900", color: Y, letterSpacing: 10, fontVariant: ["tabular-nums"] },
+  otpHint: { fontSize: 12, color: "#888", textAlign: "center" },
+  kioskIdBox: {
+    backgroundColor: S, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 20,
+    alignItems: "center", marginTop: 8,
+  },
+  kioskIdLabel: { fontSize: 9, fontWeight: "700", color: Y, letterSpacing: 1.5, marginBottom: 6 },
+  kioskIdCode: { fontSize: 28, fontWeight: "900", color: Y, letterSpacing: 4, fontVariant: ["tabular-nums"] },
   footer: {
-    position: "absolute",
-    bottom: 0, left: 0, right: 0,
-    padding: 16,
-    backgroundColor: "#fdf9ea",
-    borderTopWidth: 1,
-    borderColor: "#e8e0cc",
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    padding: 16, backgroundColor: "#fdf9ea", borderTopWidth: 1, borderColor: "#e8e0cc",
   },
   btn: { backgroundColor: Y, borderRadius: 10, paddingVertical: 14, alignItems: "center" },
-  btnDisabled: { opacity: 0.5 },
   btnText: { fontSize: 15, fontWeight: "700", color: S },
 });
