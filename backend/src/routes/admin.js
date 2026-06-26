@@ -212,4 +212,39 @@ router.post(
   })
 );
 
+// GET /api/admin/return-analytics — super admin analytics for return patterns
+router.get(
+  "/return-analytics",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const returnedItems = await prisma.orderItem.findMany({
+      where: { isReturned: true },
+      include: {
+        product: { include: { store: { select: { name: true } } } },
+      },
+    });
+
+    // Aggregate by reason, product name, and store name
+    const analytics = {};
+    for (const item of returnedItems) {
+      const reason = item.returnReason || "Unknown Reason";
+      const productName = item.product?.name || "Unknown Product";
+      const storeName = item.product?.store?.name || "Unknown Store";
+
+      const key = `${reason}|${productName}|${storeName}`;
+      if (!analytics[key]) {
+        analytics[key] = {
+          reason,
+          productName,
+          storeName,
+          count: 0,
+        };
+      }
+      analytics[key].count += item.quantity;
+    }
+
+    res.json({ data: { analytics: Object.values(analytics) }, error: null });
+  })
+);
+
 module.exports = router;

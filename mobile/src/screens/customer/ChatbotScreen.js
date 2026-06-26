@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -21,6 +22,8 @@ const getProductImage = (item) => {
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../../store/useAuthStore";
 import { api } from "../../api/client";
+import { useBrowsingStore } from "../../store/useBrowsingStore";
+import { useSizingStore } from "../../store/useSizingStore";
 
 // Chat State Machine steps
 const STEPS = {
@@ -44,6 +47,13 @@ const STEPS = {
   SIZING_RESULT: "SIZING_RESULT",
   RECOMMEND_PROMPT: "RECOMMEND_PROMPT",
   RECOMMEND_RESOLVE: "RECOMMEND_RESOLVE"
+};
+
+const requestWithTimeout = (promise, ms) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Request timed out")), ms))
+  ]);
 };
 
 export default function ChatbotScreen({ navigation, onClose }) {
@@ -204,6 +214,7 @@ export default function ChatbotScreen({ navigation, onClose }) {
                     orderId: o.id,
                     itemId: i.id,
                     name: i.product?.name || "Product",
+                    category: i.product?.category || "Sneakers",
                     size: i.variant?.size || "Standard",
                     qty: i.quantity
                   });
@@ -293,10 +304,27 @@ export default function ChatbotScreen({ navigation, onClose }) {
           case STEPS.ANYTHING_ELSE:
             addBotMessage("Is there anything else I can help you with?", [
               { label: "Back to Main Menu", action: () => resetToMenu() },
-              { label: "No, finish", action: () => {
-                addBotMessage("Thank you for shopping with Voda! Have a wonderful day in the mall.", [
-                  { label: "Start New Query", action: () => resetToMenu() }
-                ]);
+              { label: "No, finish", action: async () => {
+                setIsTyping(true);
+                try {
+                  const recs = await fetchStripRecommendations();
+                  setIsTyping(false);
+                  addBotMessage(
+                    "Thank you for shopping with Voda! Have a wonderful day in the mall.",
+                    [
+                      { label: "Start New Query", action: () => resetToMenu() }
+                    ],
+                    renderRecommendationStrip(recs)
+                  );
+                } catch (err) {
+                  setIsTyping(false);
+                  addBotMessage(
+                    "Thank you for shopping with Voda! Have a wonderful day in the mall.",
+                    [
+                      { label: "Start New Query", action: () => resetToMenu() }
+                    ]
+                  );
+                }
               }}
             ]);
             break;
@@ -339,12 +367,15 @@ export default function ChatbotScreen({ navigation, onClose }) {
           case STEPS.SIZING_RESULT:
             const { sizingCategory, sizingInput, sizingFit } = newCtx;
             if (sizingCategory === "Sneakers") {
+              const recSize = `UK ${sizingInput}`;
+              useSizingStore.getState().setSizes({ sizeSneakers: recSize });
               addBotMessage(
                 `Based on our Sneaker House catalog, we recommend ordering size UK ${sizingInput} for standard fit. For wider feet, consider a half-size up.`,
                 null,
                 renderSizingCard("Sneakers", `UK ${sizingInput}`, "Standard Fit")
               );
             } else {
+              useSizingStore.getState().setSizes({ sizeApparel: sizingInput, fitApparel: sizingFit });
               addBotMessage(
                 `We recommend size ${sizingInput} for a perfect ${sizingFit} look in our Zara Luxe and Stellar catalogs!`,
                 null,
@@ -374,6 +405,95 @@ export default function ChatbotScreen({ navigation, onClose }) {
       { label: "Back to Menu", action: () => resetToMenu() }
     ]);
     setCurrentStep("FREE_TEXT");
+  };
+
+  const fetchStripRecommendations = async () => {
+    try {
+      let category = null;
+      if (chatContext.selectedItem?.category) {
+        category = chatContext.selectedItem.category;
+      }
+      
+      // If not a return query, fall back to recent browsing history categories
+      if (!category) {
+        const recentCats = useBrowsingStore.getState().recentCategories || [];
+        if (recentCats.length > 0) {
+          category = recentCats[0];
+        }
+      }
+
+      const res = await requestWithTimeout(
+        api.get("/products", { params: category ? { category } : {} }),
+        3000
+      );
+      const data = res.data;
+      let list = data?.data?.products || [];
+      
+      // Clean and compare sizes flexibly (e.g. "UK 8" matches variant size "8")
+      const cleanSize = (sz) => String(sz).toLowerCase().replace(/^(uk|us)\s*/i, "").trim();
+
+      const savedSizes = useSizingStore.getState();
+      const finalSizingInput = chatContext.sizingInput || (category === "Sneakers" ? savedSizes.sizeSneakers : savedSizes.sizeApparel);
+
+      if (finalSizingInput) {
+        const targetSize = cleanSize(finalSizingInput);
+        const filteredList = list.filter((p) =>
+          p.variants?.some((v) => cleanSize(v.size) === targetSize)
+        );
+        if (filteredList.length > 0) {
+          list = filteredList;
+        }
+      }
+
+      return list.slice(0, 4);
+    } catch (err) {
+      console.log("Failed to fetch strip recommendations:", err);
+      return [];
+    }
+  };
+
+  const renderRecommendationStrip = (items) => {
+    if (!items || items.length === 0) return null;
+    return (
+      <View style={s.stripContainer}>
+        <Text style={s.stripTitle}>You might also like: ✨</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.stripScroll}>
+          {items.map((prod) => {
+            const roundedPrice = Math.round(Number(prod.price) || 0);
+            const formattedPrice = roundedPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            const imageSource = getProductImage(prod);
+            
+            return (
+              <Pressable
+                key={prod.id}
+                style={s.stripCard}
+                onPress={() => {
+                  if (onClose) onClose();
+                  if (navigation) {
+                    setTimeout(() => {
+                      navigation.navigate("ProductDetail", { productId: prod.id, id: prod.id });
+                    }, 300);
+                  }
+                }}
+              >
+                <View style={s.stripImageWrapper}>
+                  {imageSource ? (
+                    <Image source={imageSource} style={s.stripImage} resizeMode="cover" />
+                  ) : (
+                    <View style={s.stripFallbackBg}>
+                      <Ionicons name="image-outline" size={16} color="#012a62" style={{ opacity: 0.3 }} />
+                    </View>
+                  )}
+                </View>
+                <Text style={s.stripProdName} numberOfLines={1}>{prod.name}</Text>
+                <Text style={s.stripStoreName} numberOfLines={1}>{prod.store?.name || "Outlet"}</Text>
+                <Text style={s.stripPrice}>₹{formattedPrice}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
   };
 
   const resetToMenu = () => {
@@ -407,7 +527,10 @@ export default function ChatbotScreen({ navigation, onClose }) {
       } else if (currentStep === STEPS.RECOMMEND_PROMPT) {
         setIsTyping(true);
         try {
-          const res = await api.post("/products/recommend", { query: text });
+          const res = await requestWithTimeout(
+            api.post("/products/recommend", { query: text }),
+            4000
+          );
           const items = res.data?.data?.products || [];
           setIsTyping(false);
           
@@ -428,13 +551,50 @@ export default function ChatbotScreen({ navigation, onClose }) {
         }
       } else {
         const lower = text.toLowerCase();
+        const isClosingMsg = 
+          lower === "no" || 
+          lower === "no thanks" || 
+          lower === "no, thanks" || 
+          lower === "no thank you" || 
+          lower === "no, thank you" || 
+          lower.includes("bye") || 
+          lower.includes("goodbye") || 
+          lower.includes("thank you") || 
+          lower === "thanks" || 
+          lower === "exit" || 
+          lower === "finish";
+
         if (lower.includes("menu") || lower.includes("start over") || lower.includes("help") || lower.includes("restart") || lower.includes("reset") || lower.includes("start")) {
           resetToMenu();
+        } else if (isClosingMsg) {
+          setIsTyping(true);
+          try {
+            const recs = await fetchStripRecommendations();
+            setIsTyping(false);
+            addBotMessage(
+              "Thank you for shopping with Voda! Have a wonderful day in the mall.",
+              [
+                { label: "Start New Query", action: () => resetToMenu() }
+              ],
+              renderRecommendationStrip(recs)
+            );
+          } catch (err) {
+            setIsTyping(false);
+            addBotMessage(
+              "Thank you for shopping with Voda! Have a wonderful day in the mall.",
+              [
+                { label: "Start New Query", action: () => resetToMenu() }
+              ]
+            );
+          }
         } else {
           // Treat general doubts/questions as semantic search (Option B)!
           setIsTyping(true);
           try {
-            const res = await api.post("/products/recommend", { query: text });
+            const res = await requestWithTimeout(
+              api.post("/products/recommend", { query: text }),
+              4000
+            );
             const items = res.data?.data?.products || [];
             setIsTyping(false);
             
@@ -532,7 +692,9 @@ export default function ChatbotScreen({ navigation, onClose }) {
           onPress={() => {
             if (onClose) onClose();
             if (navigation) {
-              navigation.navigate("ProductDetail", { productId: prod.id });
+              setTimeout(() => {
+                navigation.navigate("ProductDetail", { productId: prod.id });
+              }, 300);
             }
           }}
           style={({ pressed }) => [
@@ -549,36 +711,43 @@ export default function ChatbotScreen({ navigation, onClose }) {
   const renderItem = ({ item }) => {
     const isBot = item.sender === "bot";
     return (
-      <View style={[s.messageWrapper, isBot ? s.wrapperBot : s.wrapperUser]}>
-        {isBot && (
-          <View style={s.botAvatar}>
-            <Ionicons name="chatbubbles" size={14} color="#fdde59" />
-          </View>
-        )}
-        <View style={[s.messageBubble, isBot ? s.bubbleBot : s.bubbleUser]}>
-          <View style={s.textContainer}>
-            <Text style={[s.messageText, isBot ? s.textBot : s.textUser]}>{item.text}</Text>
-            {item.customComponent}
-            <Text style={[s.timeText, isBot ? s.timeBot : s.timeUser]}>{item.time}</Text>
-          </View>
-
-          {isBot && item.options && !item.isAnswered && (
-            <View style={s.optionsWrapper}>
-              {item.options.map((opt, idx) => (
-                <Pressable
-                  key={idx}
-                  onPress={() => handleOptionPress(item.id, opt)}
-                  style={({ pressed }) => [
-                    s.whatsappOptionBtn,
-                    pressed && { backgroundColor: "#f1f5f9" }
-                  ]}
-                >
-                  <Text style={s.whatsappOptionText}>{opt.label}</Text>
-                </Pressable>
-              ))}
+      <View style={{ marginBottom: 12 }}>
+        <View style={[s.messageWrapper, isBot ? s.wrapperBot : s.wrapperUser, { marginBottom: 0 }]}>
+          {isBot && (
+            <View style={s.botAvatar}>
+              <Ionicons name="chatbubbles" size={14} color="#fdde59" />
             </View>
           )}
+          <View style={[s.messageBubble, isBot ? s.bubbleBot : s.bubbleUser]}>
+            <View style={s.textContainer}>
+              <Text style={[s.messageText, isBot ? s.textBot : s.textUser]}>{item.text}</Text>
+              <Text style={[s.timeText, isBot ? s.timeBot : s.timeUser]}>{item.time}</Text>
+            </View>
+
+            {isBot && item.options && !item.isAnswered && (
+              <View style={s.optionsWrapper}>
+                {item.options.map((opt, idx) => (
+                  <Pressable
+                    key={idx}
+                    onPress={() => handleOptionPress(item.id, opt)}
+                    style={({ pressed }) => [
+                      s.whatsappOptionBtn,
+                      pressed && { backgroundColor: "#f1f5f9" }
+                    ]}
+                  >
+                    <Text style={s.whatsappOptionText}>{opt.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
         </View>
+
+        {isBot && item.customComponent && (
+          <View style={{ marginLeft: 36, marginTop: 4 }}>
+            {item.customComponent}
+          </View>
+        )}
       </View>
     );
   };
@@ -663,10 +832,10 @@ const s = StyleSheet.create({
     backgroundColor: "#fdf9ea",
   },
   header: {
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(1, 42, 98, 0.08)",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(60, 60, 67, 0.29)",
     backgroundColor: "#ffffff",
   },
   headerRow: {
@@ -679,14 +848,17 @@ const s = StyleSheet.create({
     width: 36,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: "rgba(1, 42, 98, 0.12)",
+    backgroundColor: "#d1d1d6",
     alignSelf: "center",
     marginTop: 8,
     marginBottom: 10,
   },
   sizingCard: {
     backgroundColor: "#fffef5",
-    borderRadius: 12,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+    borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: "#012a6215",
     padding: 12,
@@ -737,7 +909,10 @@ const s = StyleSheet.create({
   },
   recommendCard: {
     backgroundColor: "#fffef5",
-    borderRadius: 12,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+    borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: "#012a6215",
     padding: 12,
@@ -796,14 +971,15 @@ const s = StyleSheet.create({
     borderColor: "#ffffff",
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#012a62",
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#000000",
+    letterSpacing: -0.3,
   },
   headerSubtitle: {
-    fontSize: 11,
-    color: "rgba(1, 42, 98, 0.5)",
-    fontWeight: "600",
+    fontSize: 12,
+    color: "rgba(60, 60, 67, 0.5)",
+    fontWeight: "400",
   },
   closeBtn: {
     padding: 4,
@@ -953,7 +1129,10 @@ const s = StyleSheet.create({
   // Order Card Bubble Styling
   orderCard: {
     backgroundColor: "#fffef5",
-    borderRadius: 12,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+    borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: "#012a6215",
     padding: 12,
@@ -1032,5 +1211,75 @@ const s = StyleSheet.create({
     color: "#fdde59",
     fontSize: 11,
     fontWeight: "800",
-  }
+  },
+  stripContainer: {
+    marginTop: 8,
+    width: "100%",
+  },
+  stripTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#012a6260",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  stripScroll: {
+    gap: 8,
+    flexDirection: "row",
+    paddingBottom: 4,
+  },
+  stripCard: {
+    width: 110,
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: "rgba(1, 42, 98, 0.08)",
+    padding: 8,
+    shadowColor: "#012a62",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  stripImageWrapper: {
+    width: "100%",
+    height: 70,
+    borderRadius: 6,
+    overflow: "hidden",
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  stripImage: {
+    width: "100%",
+    height: "100%",
+  },
+  stripFallbackBg: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stripProdName: {
+    fontSize: 10.5,
+    fontWeight: "750",
+    color: "#012a62",
+  },
+  stripStoreName: {
+    fontSize: 8.5,
+    color: "#012a6250",
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  stripPrice: {
+    fontSize: 10.5,
+    fontWeight: "850",
+    color: "#012a62",
+    marginTop: 2,
+  },
 });

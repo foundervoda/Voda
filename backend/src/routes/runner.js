@@ -90,10 +90,10 @@ router.post(
       include: ORDER_INCLUDE,
     });
 
-    const storeId = existing.items[0]?.product?.storeId;
+    const storeIds = [...new Set(existing.items.map(item => item.product?.storeId).filter(Boolean))];
     const io = req.app.get("io");
     io.to(`order:${order.id}`).emit("order_update", { order });
-    if (storeId) io.to(`store:${storeId}`).emit("order_update", { order });
+    storeIds.forEach(sid => io.to(`store:${sid}`).emit("order_update", { order }));
 
     res.json({ data: { order }, error: null });
   })
@@ -192,10 +192,10 @@ router.post(
       include: ORDER_INCLUDE,
     });
 
-    const storeId = existing.items[0]?.product?.storeId;
+    const storeIds = [...new Set(existing.items.map(item => item.product?.storeId).filter(Boolean))];
     const io = req.app.get("io");
     io.to(`order:${order.id}`).emit("order_update", { order });
-    if (storeId) io.to(`store:${storeId}`).emit("order_update", { order });
+    storeIds.forEach(sid => io.to(`store:${sid}`).emit("order_update", { order }));
 
     res.json({ data: { order }, error: null });
   })
@@ -228,10 +228,10 @@ router.post(
       include: ORDER_INCLUDE,
     });
 
-    const storeId = existing.items[0]?.product?.storeId;
+    const storeIds = [...new Set(existing.items.map(item => item.product?.storeId).filter(Boolean))];
     const io = req.app.get("io");
     io.to(`order:${order.id}`).emit("order_update", { order });
-    if (storeId) io.to(`store:${storeId}`).emit("order_update", { order });
+    storeIds.forEach(sid => io.to(`store:${sid}`).emit("order_update", { order }));
 
     res.json({ data: { order }, error: null });
   })

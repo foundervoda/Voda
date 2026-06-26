@@ -23,7 +23,7 @@ const storage = {
       : SecureStore.deleteItemAsync(key),
 };
 
-export const api = axios.create({ baseURL: BASE_URL });
+export const api = axios.create({ baseURL: BASE_URL, timeout: 5000 });
 
 api.interceptors.request.use(async (config) => {
   const token = await storage.getItem(TOKEN_KEY);

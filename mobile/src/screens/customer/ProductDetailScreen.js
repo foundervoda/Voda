@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useOrderStore } from "../../store/useOrderStore";
 import { useActiveOrder } from "../../hooks/useActiveOrder";
 import { api } from "../../api/client";
+import { useBrowsingStore } from "../../store/useBrowsingStore";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -223,6 +224,7 @@ export default function ProductDetailScreen({ route, navigation }) {
 
   const addToCart = useOrderStore((s) => s.addToCart);
   const activeBannerOrder = useActiveOrder();
+  const addBrowsedCategory = useBrowsingStore((s) => s.addBrowsedCategory);
 
   // State Management (Unconditionally declared at the absolute top)
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -245,6 +247,9 @@ export default function ProductDetailScreen({ route, navigation }) {
     const activeProductCat = apiProduct?.category || MOCK_PRODUCT.category;
     const activeProductId = productId || MOCK_PRODUCT.id;
     if (!activeProductCat) return;
+
+    // Track viewed category in browsing history
+    addBrowsedCategory(activeProductCat);
 
     setRecLoading(true);
     api.post("/products/recommend", { query: activeProductCat })

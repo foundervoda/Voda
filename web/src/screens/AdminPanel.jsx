@@ -10,6 +10,7 @@ import {
   bulkUpdateCategoryTb,
   approveManagerTbRequest,
   denyManagerTbRequest,
+  fetchAdminReturnAnalytics,
 } from "../api/admin";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -925,6 +926,76 @@ function TryBuyToggles() {
   );
 }
 
+// ── Return Analytics ──────────────────────────────────────────────────────────
+
+function ReturnAnalytics() {
+  const [analytics, setAnalytics] = useState(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    fetchAdminReturnAnalytics().then(setAnalytics).catch(console.error);
+  }, []);
+
+  if (!analytics) return <Spinner />;
+
+  const visible = analytics.filter((a) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      a.reason.toLowerCase().includes(q) ||
+      a.productName.toLowerCase().includes(q) ||
+      a.storeName.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="space-y-4 text-navy">
+      <div className="flex gap-2 items-center">
+        <input
+          type="text"
+          placeholder="Search by reason, product, or store..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy placeholder:text-gray-300 focus:outline-none focus:border-navy flex-1 max-w-sm"
+        />
+        <span className="text-sm text-gray-400 ml-auto">
+          {visible.length} patterns surfaced
+        </span>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-cream border-b border-gray-100">
+            <tr>
+              <Th>Return Reason</Th>
+              <Th>Product Name</Th>
+              <Th>Store Name</Th>
+              <Th className="text-right">Return Count</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={4} className="text-center py-12 text-gray-400">
+                  No return analytics found
+                </td>
+              </tr>
+            )}
+            {visible.map((a, i) => (
+              <tr key={i} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                <td className="px-4 py-3 font-semibold text-navy">{a.reason}</td>
+                <td className="px-4 py-3 text-gray-600">{a.productName}</td>
+                <td className="px-4 py-3 text-gray-500">{a.storeName}</td>
+                <td className="px-4 py-3 text-right font-bold text-navy pr-6">{a.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── AdminPanel shell ──────────────────────────────────────────────────────────
 
 const TABS = [
@@ -933,6 +1004,7 @@ const TABS = [
   { key: "customers",  label: "Customers" },
   { key: "stores",     label: "Stores" },
   { key: "trybuy",     label: "Try & Buy" },
+  { key: "analytics",  label: "Return Analytics" },
 ];
 
 export default function AdminPanel() {
@@ -977,6 +1049,7 @@ export default function AdminPanel() {
         <Stores onFilterOrders={(storeId) => drillToOrders({ storeId })} />
       )}
       {tab === "trybuy"    && <TryBuyToggles />}
+      {tab === "analytics" && <ReturnAnalytics />}
     </div>
   );
 }

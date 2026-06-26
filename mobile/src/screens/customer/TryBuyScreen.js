@@ -2,17 +2,35 @@ import { useState, useEffect } from "react";
 import {
   View,
   Text,
+  Image,
   ScrollView,
   Pressable,
   StyleSheet,
   StatusBar,
   Alert,
   ActivityIndicator,
+  Modal,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useSocket } from "../../api/SocketContext";
 import { api } from "../../api/client";
+import { useAuthStore } from "../../store/useAuthStore";
+import { useSizingStore } from "../../store/useSizingStore";
+
+const RETURN_REASONS = [
+  "Wrong size received",
+  "Item looks different from photos",
+  "Poor quality / not as described",
+  "Damaged or defective item",
+  "Changed my mind",
+  "Wrong item delivered",
+  "Colour different from what was shown",
+  "Fit doesn't suit me (despite correct size)",
+  "Missing parts or accessories",
+  "Ordered by mistake"
+];
 
 // Server sets tryTimerEnd = now + 5 min; display window = 1 min.
 // Offset between them = 4 min. Both screens derive from the same server timestamp.
@@ -49,6 +67,13 @@ export default function TryBuyScreen({ route, navigation }) {
     return initial;
   });
 
+  const user = useAuthStore((state) => state.user);
+  const [showReasonsModal, setShowReasonsModal] = useState(false);
+  const [selectedReason, setSelectedReason] = useState(null);
+  const [returnComment, setReturnComment] = useState("");
+  const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+
   // Countdown derived from server tryTimerEnd — stays in sync with rider screen
   useEffect(() => {
     const interval = setInterval(() => {
@@ -64,7 +89,12 @@ export default function TryBuyScreen({ route, navigation }) {
     if (!socket) return;
     socket.emit("join_order_room", order.id);
     const handler = ({ order: updated }) => {
-      if (updated.id === order.id) setOrder(updated);
+      if (updated.id === order.id) {
+        setOrder(updated);
+        if (updated.status === "RETURNING" || updated.status === "RETURNED") {
+          fetchPostReturnSuggestions(updated);
+        }
+      }
     };
     socket.on("order_update", handler);
     return () => socket.off("order_update", handler);
@@ -102,29 +132,76 @@ export default function TryBuyScreen({ route, navigation }) {
     }
   };
 
+  const fetchPostReturnSuggestions = async (currentOrder) => {
+    try {
+      const activeOrder = currentOrder || order;
+      // Use isReturned flag from backend order items (reliable even when rider changes status)
+      const returnedItems = activeOrder.items.filter(item => item.isReturned === true);
+      // Fall back to local selections state if no backend-flagged returns yet
+      const fallbackItems = returnedItems.length === 0
+        ? activeOrder.items.filter(item => selections[item.variantId] === "RETURN")
+        : returnedItems;
+      const categories = [...new Set(fallbackItems.map(item => item.product?.category).filter(Boolean))];
+      let categoryFilter = categories[0] || "Sneakers";
+
+      const { data } = await api.get("/products", {
+        params: { category: categoryFilter }
+      });
+
+      let prodList = data?.data?.products || [];
+      const orderedProductIds = activeOrder.items.map(item => item.productId);
+      let filtered = prodList.filter(p => !orderedProductIds.includes(p.id));
+
+      if (filtered.length === 0) {
+        const allProdsResponse = await api.get("/products");
+        filtered = (allProdsResponse?.data?.data?.products || []).filter(p => !orderedProductIds.includes(p.id));
+      }
+
+      // Filter by size profile if available in useSizingStore
+      const savedSizes = useSizingStore.getState();
+      const sizingInput = categoryFilter === "Sneakers" ? savedSizes.sizeSneakers : savedSizes.sizeApparel;
+      const cleanSize = (sz) => String(sz).toLowerCase().replace(/^(uk|us)\s*/i, "").trim();
+
+      if (sizingInput) {
+        const targetSize = cleanSize(sizingInput);
+        const sizedList = filtered.filter((p) =>
+          p.variants?.some((v) => cleanSize(v.size) === targetSize)
+        );
+        if (sizedList.length > 0) {
+          filtered = sizedList;
+        }
+      }
+
+      setSuggestions(filtered.slice(0, 4));
+      setShowSuggestionsModal(true);
+    } catch (err) {
+      console.log("Failed to fetch return suggestions:", err);
+    }
+  };
+
+  const confirmReturn = async () => {
+    if (!selectedReason) {
+      Alert.alert("Error", "Please select a reason for the return.");
+      return;
+    }
+    setLoading(true);
+    setShowReasonsModal(false);
+    try {
+      const { data } = await api.post(`/orders/${order.id}/request-return`, {
+        selections,
+        returnReason: selectedReason,
+        returnComment
+      });
+      setReturnOtp(data.data.returnOtp);
+    } catch (err) {
+      Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to initiate return");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleReturn = () => {
-    Alert.alert(
-      "Return Items?",
-      "The rider will collect the items. You will be refunded for returned items.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes, Return",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { data } = await api.post(`/orders/${order.id}/request-return`);
-              setReturnOtp(data.data.returnOtp);
-            } catch (err) {
-              Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to initiate return");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+    setShowReasonsModal(true);
   };
 
   return (
@@ -134,7 +211,7 @@ export default function TryBuyScreen({ route, navigation }) {
       {/* Header */}
       <View style={[s.header, { paddingTop: Math.max(insets.top, 16) }]}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={s.backBtn}>
-          <Ionicons name="arrow-back" size={20} color="#012a62" />
+          <Ionicons name="chevron-back" size={24} color="#012a62" />
         </Pressable>
         <Text style={s.headerTitle}>Try & Buy Portal</Text>
         <View style={{ width: 36 }} />
@@ -281,6 +358,160 @@ export default function TryBuyScreen({ route, navigation }) {
           </>
         )}
       </View>
+
+      {/* Return Reason Modal */}
+      <Modal
+        visible={showReasonsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowReasonsModal(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.reasonsSheet}>
+            <View style={s.grabHandle} />
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>Why are you returning?</Text>
+              <Pressable onPress={() => setShowReasonsModal(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color="#012a62" />
+              </Pressable>
+            </View>
+
+            <ScrollView style={s.reasonsList} showsVerticalScrollIndicator={false}>
+              <Text style={s.modalSubtitle}>Please select the primary reason for returning the selected items.</Text>
+              {RETURN_REASONS.map((reason) => {
+                const isSelected = selectedReason === reason;
+                return (
+                  <Pressable
+                    key={reason}
+                    onPress={() => setSelectedReason(reason)}
+                    style={[s.reasonItem, isSelected && s.reasonItemActive]}
+                  >
+                    <View style={[s.radioCircle, isSelected && s.radioCircleActive]}>
+                      {isSelected && <View style={s.radioInnerCircle} />}
+                    </View>
+                    <Text style={[s.reasonText, isSelected && s.reasonTextActive]}>{reason}</Text>
+                  </Pressable>
+                );
+              })}
+
+              <Text style={s.commentLabel}>Additional Comments (Optional)</Text>
+              <TextInput
+                style={s.commentInput}
+                placeholder="Tell us more about the fit or quality issues..."
+                placeholderTextColor="#012a6240"
+                value={returnComment}
+                onChangeText={setReturnComment}
+                multiline
+                numberOfLines={3}
+              />
+            </ScrollView>
+
+            <View style={s.modalFooter}>
+              <Pressable
+                style={[s.modalConfirmBtn, !selectedReason && s.modalConfirmBtnDisabled]}
+                onPress={confirmReturn}
+                disabled={!selectedReason}
+              >
+                <Text style={s.modalConfirmBtnText}>Confirm Return</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Post-Return Suggestions Modal */}
+      <Modal
+        visible={showSuggestionsModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowSuggestionsModal(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.suggestionsCard}>
+            <View style={s.grabHandle} />
+            <View style={s.modalHeader}>
+              <Text style={s.modalTitle}>We're sorry you didn't find the right one for you, here's what else you might love</Text>
+              <Pressable onPress={() => setShowSuggestionsModal(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color="#012a62" />
+              </Pressable>
+            </View>
+
+            <ScrollView style={s.suggestionsScroll} showsVerticalScrollIndicator={false}>
+              <Text style={s.suggestionsIntro}>
+                We want to make sure you find the perfect style and fit. Based on your return, here are some recommendations you might love:
+              </Text>
+
+              {suggestions.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.suggestionsHorizontal}>
+                  {suggestions.map((product) => {
+                    const isAvailable = product.variants?.some(v => v.stock > 0);
+
+                    return (
+                      <Pressable
+                        key={product.id}
+                        style={s.suggestionProdCard}
+                        onPress={() => {
+                          setShowSuggestionsModal(false);
+                          navigation.navigate("ProductDetail", { productId: product.id, id: product.id });
+                        }}
+                      >
+                        <View style={s.suggestionImgPlaceholder}>
+                          {product.images?.[0] ? (
+                            <Image
+                              source={{ uri: product.images[0].startsWith("http") ? product.images[0] : `http://localhost:3001${product.images[0]}` }}
+                              style={s.suggestionImg}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <Ionicons
+                              name={product.category === "Sneakers" ? "footsteps-outline" : "shirt-outline"}
+                              size={32}
+                              color="#012a6240"
+                            />
+                          )}
+                        </View>
+                        <View style={s.suggestionDetails}>
+                          <Text style={s.suggestionProdName} numberOfLines={1}>
+                            {product.name}
+                          </Text>
+                          <Text style={s.suggestionProdStore} numberOfLines={1}>
+                            {product.store?.name || "Voda Partner Store"}
+                          </Text>
+                          <Text style={s.suggestionProdPrice}>
+                            ₹{formatRupeePrice(product.price)}
+                          </Text>
+
+                          {isAvailable ? (
+                            <View style={s.sizeBadge}>
+                              <Text style={s.sizeBadgeText}>✨ In Stock</Text>
+                            </View>
+                          ) : (
+                            <View style={[s.sizeBadge, s.sizeBadgeOut]}>
+                              <Text style={s.sizeBadgeTextOut}>Out of Stock</Text>
+                            </View>
+                          )}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : (
+                <View style={s.emptySuggestions}>
+                  <Ionicons name="sparkles-outline" size={32} color="#012a6230" />
+                  <Text style={s.emptySuggestionsText}>No other recommendations in this category right now.</Text>
+                </View>
+              )}
+
+              <Pressable
+                style={s.suggestionsCloseBtn}
+                onPress={() => setShowSuggestionsModal(false)}
+              >
+                <Text style={s.suggestionsCloseBtnText}>Browse More Products</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -288,33 +519,33 @@ export default function TryBuyScreen({ route, navigation }) {
 const s = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#fdf9ea",
+    backgroundColor: "#f2f2f7",
   },
   header: {
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#012a6210",
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(60, 60, 67, 0.29)",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#ffffff",
+    backgroundColor: "#f2f2f7",
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#012a62",
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#000000",
+    letterSpacing: -0.4,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#012a6208",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   content: {
-    padding: 20,
+    padding: 16,
   },
   timerCard: {
     backgroundColor: "#fff",
@@ -578,5 +809,247 @@ const s = StyleSheet.create({
     opacity: 0.45,
     fontSize: 13,
     fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(1, 42, 98, 0.4)",
+    justifyContent: "flex-end",
+  },
+  reasonsSheet: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    maxHeight: "85%",
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: "#012a6260",
+    fontWeight: "600",
+    marginBottom: 16,
+  },
+  reasonsList: {
+    marginBottom: 16,
+  },
+  reasonItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: "#012a6204",
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#012a6208",
+  },
+  reasonItemActive: {
+    backgroundColor: "#fdde5915",
+    borderColor: "#fdde59",
+  },
+  radioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#012a6240",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  radioCircleActive: {
+    borderColor: "#012a62",
+  },
+  radioInnerCircle: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#012a62",
+  },
+  reasonText: {
+    fontSize: 14,
+    color: "#012a62a0",
+    fontWeight: "600",
+  },
+  reasonTextActive: {
+    color: "#012a62",
+    fontWeight: "700",
+  },
+  commentLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#012a6270",
+    marginTop: 16,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  commentInput: {
+    backgroundColor: "#012a6204",
+    borderWidth: 1,
+    borderColor: "#012a6210",
+    borderRadius: 12,
+    padding: 12,
+    color: "#012a62",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlignVertical: "top",
+    minHeight: 80,
+    marginBottom: 20,
+  },
+  modalFooter: {
+    paddingBottom: 24,
+  },
+  modalConfirmBtn: {
+    backgroundColor: "#fdde59",
+    borderColor: "#012a62",
+    borderWidth: 1.5,
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalConfirmBtnDisabled: {
+    backgroundColor: "#012a6210",
+    borderColor: "#012a6220",
+    opacity: 0.5,
+  },
+  modalConfirmBtnText: {
+    color: "#012a62",
+    fontWeight: "900",
+    fontSize: 16,
+  },
+  suggestionsCard: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    maxHeight: "85%",
+    marginTop: "auto",
+  },
+  suggestionsIntro: {
+    fontSize: 13,
+    color: "#012a6280",
+    fontWeight: "600",
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  suggestionsScroll: {
+    marginBottom: 24,
+  },
+  suggestionsHorizontal: {
+    paddingRight: 16,
+    flexDirection: "row",
+    gap: 12,
+    paddingBottom: 8,
+  },
+  suggestionProdCard: {
+    width: 150,
+    backgroundColor: "#012a6204",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#012a6208",
+    padding: 8,
+  },
+  suggestionImgPlaceholder: {
+    width: "100%",
+    height: 100,
+    borderRadius: 10,
+    backgroundColor: "#f1f5f9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+    overflow: "hidden",
+  },
+  suggestionImg: {
+    width: "100%",
+    height: "100%",
+  },
+  suggestionDetails: {
+    paddingHorizontal: 4,
+  },
+  suggestionProdName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#012a62",
+  },
+  suggestionProdStore: {
+    fontSize: 11,
+    color: "#012a6250",
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  suggestionProdPrice: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#012a62",
+    marginTop: 4,
+  },
+  sizeBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#16a34a12",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    marginTop: 6,
+  },
+  sizeBadgeText: {
+    color: "#16a34a",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  sizeBadgeOut: {
+    backgroundColor: "#012a620a",
+  },
+  sizeBadgeTextOut: {
+    color: "#012a6250",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  emptySuggestions: {
+    alignItems: "center",
+    paddingVertical: 32,
+  },
+  emptySuggestionsText: {
+    fontSize: 12,
+    color: "#012a6240",
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  suggestionsCloseBtn: {
+    backgroundColor: "#012a6208",
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "#012a6210",
+  },
+  suggestionsCloseBtnText: {
+    color: "#012a62",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#012a62",
+  },
+  grabHandle: {
+    width: 36,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "rgba(1, 42, 98, 0.12)",
+    alignSelf: "center",
+    marginBottom: 16,
   },
 });

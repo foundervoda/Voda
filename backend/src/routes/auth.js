@@ -12,7 +12,14 @@ const SALT_ROUNDS = 10;
 const signToken = (user) =>
   jwt.sign({ sub: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
-const toPublicUser = ({ id, email, phone, role, storeId, createdAt }) => ({ id, email, phone, role, storeId, createdAt });
+const toPublicUser = ({ id, email, phone, role, storeId, createdAt }) => ({
+  id,
+  email,
+  phone,
+  role,
+  storeId,
+  createdAt,
+});
 
 // POST /api/auth/register — Body: email, password, phone, role
 router.post(
@@ -52,6 +59,28 @@ router.post(
     }
 
     res.json({ data: { user: toPublicUser(user), token: signToken(user) }, error: null });
+  })
+);
+
+// POST /api/auth/magic-link — Generate super admin magic login link
+router.post(
+  "/magic-link",
+  asyncHandler(async (req, res) => {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ data: null, error: { message: "Email is required", code: "VALIDATION_ERROR" } });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || user.role !== "ADMIN") {
+      return res.status(404).json({ data: null, error: { message: "Admin user not found or not authorized", code: "NOT_FOUND" } });
+    }
+
+    const token = signToken(user);
+    const magicLink = `http://localhost:5173/login?token=${token}`;
+    console.log(`[MAGIC LINK LOGGED]: ${magicLink}`);
+
+    res.json({ data: { magicLink, token }, error: null });
   })
 );
 

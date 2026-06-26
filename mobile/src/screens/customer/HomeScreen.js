@@ -10,6 +10,7 @@ import {
   StyleSheet,
   TextInput,
   Modal,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -50,14 +51,31 @@ export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState("");
   const [chatbotVisible, setChatbotVisible] = useState(false);
+  const [currentMockZone, setCurrentMockZone] = useState("Zone A");
 
   const { user } = useAuthStore();
   const userName = user?.email ? user.email.split("@")[0] : "Customer";
   const capitalizedName = userName.charAt(0).toUpperCase() + userName.slice(1);
 
+  // Detect active membership tier
+  let currentTier = "Free";
+  if (user?.email?.toLowerCase().includes("platinum")) {
+    currentTier = "Platinum";
+  } else if (user?.email?.toLowerCase().includes("gold")) {
+    currentTier = "Gold";
+  }
+
+  const maxAllowedStores = currentTier === "Platinum" ? 5 : currentTier === "Gold" ? 3 : 1;
+
   // Cart from Zustand
   const cart = useOrderStore((s) => s.cart || []);
   const cartCount = cart.reduce((sum, item) => sum + (item.quantity || 1), 0);
+  const uniqueCartStoreNames = [...new Set(cart.map(item => item.storeName))].filter(Boolean);
+
+  const getStoreZone = (storeName) => {
+    if (storeName === "Zara Luxe Hub") return "Zone B";
+    return "Zone A";
+  };
 
   // React Query: Fetch Stores
   const { data: stores, isLoading, refetch } = useQuery({
@@ -89,25 +107,109 @@ export default function HomeScreen({ navigation }) {
   });
 
   const renderStoreCard = ({ item }) => {
+    const storeZone = getStoreZone(item.name);
+    const isDifferentZone = storeZone !== currentMockZone;
+    const isStoreLockedByZone = currentTier !== "Platinum" && isDifferentZone;
+
+    const isLimitReached = uniqueCartStoreNames.length >= maxAllowedStores;
+    const isStoreLockedByLimit = isLimitReached && !uniqueCartStoreNames.includes(item.name);
+
+    const isLocked = isStoreLockedByZone || isStoreLockedByLimit;
+
+    const handlePressStore = () => {
+      if (isStoreLockedByZone) {
+        if (currentTier === "Free") {
+          Alert.alert(
+            "Store Locked",
+            "This store is outside your current delivery zone. Upgrade to Voda Gold or Platinum to access multi-zone delivery!",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Upgrade Plan", onPress: () => navigation.navigate("VodaGold") }
+            ]
+          );
+        } else if (currentTier === "Gold") {
+          Alert.alert(
+            "Zone Switch Used",
+            "You have already used your 1 monthly zone switch. Upgrade to Platinum for unlimited multi-zone delivery!",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Upgrade to Platinum", onPress: () => navigation.navigate("VodaGold") }
+            ]
+          );
+        }
+        return;
+      }
+
+      if (isStoreLockedByLimit) {
+        if (currentTier === "Platinum") {
+          Alert.alert(
+            "Store Limit Reached",
+            "You have reached the maximum limit of 5 stores for a single order on the Platinum plan.",
+            [{ text: "OK" }]
+          );
+        } else {
+          Alert.alert(
+            "Store Limit Reached",
+            `Your current ${currentTier} plan allows ordering from a maximum of ${maxAllowedStores} store${maxAllowedStores > 1 ? "s" : ""} per order. Upgrade to access more stores!`,
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Upgrade Plan", onPress: () => navigation.navigate("VodaGold") }
+            ]
+          );
+        }
+        return;
+      }
+
+      navigation.navigate("StoreCatalog", { store: item });
+    };
+
     return (
       <Pressable
-        onPress={() => navigation.navigate("StoreCatalog", { store: item })}
-        style={styles.storeCard}
+        onPress={handlePressStore}
+        style={[styles.storeCard, isLocked && styles.storeCardLocked]}
       >
         <View style={styles.imageWrapper}>
-          <Image source={{ uri: item.image }} style={styles.storeImage} resizeMode="cover" />
+          <Image source={{ uri: item.image }} style={[styles.storeImage, isLocked && styles.storeImageLocked]} resizeMode="cover" />
           <View style={styles.gradientOverlay} />
+          
+          {/* Lock Overlay */}
+          {isLocked && (
+            <View style={styles.lockOverlay}>
+              <View style={styles.lockIconBg}>
+                <Ionicons name="lock-closed" size={20} color="#ffffff" />
+              </View>
+              <Text style={styles.lockText}>
+                {isStoreLockedByZone ? "Outside Active Zone" : (currentTier === "Platinum" ? "5 stores in order" : "Store Limit Reached")}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.locationBadge}>
             <Ionicons name="location" size={10} color="#0d1b5e" />
-            <Text style={styles.locationText}>{item.location}</Text>
+            <Text style={styles.locationText}>{item.location} ({storeZone})</Text>
           </View>
         </View>
 
-        <View style={styles.cardInfo}>
+        <View style={[styles.cardInfo, isLocked && { opacity: 0.6 }]}>
           <Text style={styles.storeName}>{item.name}</Text>
-          <Text style={styles.storeDescription} numberOfLines={2}>
-            {item.description}
-          </Text>
+          
+          {isStoreLockedByZone ? (
+            <Text style={styles.lockDetailText}>
+              {currentTier === "Gold" 
+                ? "Zone switch used: resets in 12 days." 
+                : "Not in your active delivery zone."}
+            </Text>
+          ) : isStoreLockedByLimit ? (
+            <Text style={styles.lockDetailText}>
+              {currentTier === "Platinum"
+                ? "Maximum 5 stores reached for this order."
+                : `Store limit reached for this order (${maxAllowedStores} max).`}
+            </Text>
+          ) : (
+            <Text style={styles.storeDescription} numberOfLines={2}>
+              {item.description}
+            </Text>
+          )}
           
           <View style={styles.tagsContainer}>
             {item.tags.map((tag, idx) => (
@@ -134,7 +236,7 @@ export default function HomeScreen({ navigation }) {
             </View>
             <Text style={styles.brandText}>Voda</Text>
           </View>
-          <Text style={styles.greetingText}>Welcome back, {capitalizedName}</Text>
+          <Text style={styles.greetingText}>Welcome back, {capitalizedName} ({currentTier})</Text>
           <Text style={styles.headerTitle}>Mall Directory</Text>
         </View>
         
@@ -170,6 +272,26 @@ export default function HomeScreen({ navigation }) {
             </Pressable>
           )}
         </View>
+      </View>
+
+      {/* Mock GPS Location Controller Banner */}
+      <View style={styles.gpsBanner}>
+        <View style={styles.gpsRow}>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Ionicons name="navigate-circle" size={20} color="#0d1b5e" style={{ marginRight: 6 }} />
+            <Text style={styles.gpsLabel}>Mock GPS Active Zone:</Text>
+            <Text style={styles.gpsValue}>{currentMockZone}</Text>
+          </View>
+          <Pressable 
+            onPress={() => setCurrentMockZone(prev => prev === "Zone A" ? "Zone B" : "Zone A")}
+            style={({ pressed }) => [styles.gpsToggleBtn, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={styles.gpsToggleText}>Switch Location</Text>
+          </Pressable>
+        </View>
+        {currentTier === "Gold" && (
+          <Text style={styles.gpsWarning}>Zone switch used: resets in 12 days.</Text>
+        )}
       </View>
 
       {/* Directory List */}
@@ -219,7 +341,82 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#fdf9ea",
+    backgroundColor: "#f2f2f7",
+  },
+  storeCardLocked: {
+    borderColor: "rgba(13, 27, 94, 0.04)",
+    backgroundColor: "rgba(13, 27, 94, 0.02)",
+  },
+  storeImageLocked: {
+    opacity: 0.3,
+  },
+  lockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(13, 27, 94, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lockIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#0d1b5e",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
+  lockText: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  lockDetailText: {
+    fontSize: 12,
+    color: "#ea580c",
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  gpsBanner: {
+    backgroundColor: "#ffffff",
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#0d1b5e10",
+    padding: 12,
+  },
+  gpsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  gpsLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#0d1b5e60",
+  },
+  gpsValue: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0d1b5e",
+    marginLeft: 4,
+  },
+  gpsToggleBtn: {
+    backgroundColor: "#0d1b5e",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  gpsToggleText: {
+    color: "#fdde59",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  gpsWarning: {
+    fontSize: 10,
+    color: "#ea580c",
+    fontWeight: "700",
+    marginTop: 6,
   },
   header: {
     flexDirection: "row",
@@ -316,12 +513,11 @@ const styles = StyleSheet.create({
   searchWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(13, 27, 94, 0.04)",
-    borderRadius: 14,
+    backgroundColor: "rgba(120, 120, 128, 0.12)",
+    borderRadius: 10,
     paddingHorizontal: 12,
-    height: 44,
-    borderWidth: 1,
-    borderColor: "rgba(13, 27, 94, 0.05)",
+    height: 36,
+    borderWidth: 0,
   },
   searchIcon: {
     opacity: 0.6,
@@ -335,25 +531,24 @@ const styles = StyleSheet.create({
     padding: 0,
   },
   listContent: {
+    paddingTop: 8,
     paddingBottom: 100,
   },
   storeCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 20,
+    borderRadius: 16,
     marginHorizontal: 16,
-    marginBottom: 20,
+    marginBottom: 16,
     overflow: "hidden",
-    shadowColor: "#0d1b5e",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: "rgba(13, 27, 94, 0.03)",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   imageWrapper: {
     width: "100%",
-    height: 160,
+    height: 180,
     position: "relative",
   },
   storeImage: {

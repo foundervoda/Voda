@@ -63,17 +63,17 @@ export default function OrderConfirmScreen({ route, navigation }) {
         <View style={s.row}>
           <Text style={s.rowLabel}>Delivery Fee</Text>
           {deliveryFee === 0 ? (
-            <Text style={s.freeText}>FREE (Gold)</Text>
+            <Text style={s.freeText}>FREE ({order.isPlatinum ? "Platinum" : "Gold"})</Text>
           ) : (
             <Text style={s.rowValue}>₹{formatRupeePrice(deliveryFee)}</Text>
           )}
         </View>
 
-        {order.isGold && (
+        {(order.isGold || order.isPlatinum) && (
           <View style={s.row}>
             <Text style={s.rowLabel}>Try & Buy Option</Text>
             {order.isTryAndBuy ? (
-              <Text style={s.freeText}>Active (Gold - FREE)</Text>
+              <Text style={s.freeText}>Active ({order.isPlatinum ? "Platinum" : "Gold"} - FREE)</Text>
             ) : (
               <Text style={s.inactiveText}>Not Available (Boots only)</Text>
             )}

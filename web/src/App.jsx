@@ -75,6 +75,13 @@ export default function App() {
   const [tab, setTab]             = useState("orders");
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token");
+    if (urlToken) {
+      localStorage.setItem("voda_store_token", urlToken);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     if (getToken()) {
       getMe()
         .then(setUser)
