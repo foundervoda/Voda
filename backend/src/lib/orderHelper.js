@@ -20,14 +20,17 @@ function toRupees(dbPrice) {
 
 const enrichOrderWithFees = (order, customerEmail) => {
   if (!order) return null;
-  const isGold = !!(customerEmail?.toLowerCase() ?? "").includes("gold");
+  const emailLower = customerEmail?.toLowerCase() || "";
+  const isGold = emailLower.includes("gold");
+  const isPlatinum = emailLower.includes("platinum");
+  const isSubscriber = isGold || isPlatinum;
   const isTryAndBuy = !!order.deliveryAddr?.includes(" | Try & Buy");
   
-  let deliveryFee = isGold ? 0 : 150;
+  let deliveryFee = isSubscriber ? 0 : 150;
   
-  // Try & Buy fee: 0 for gold; 99 for standard if selected and has eligible items
+  // Try & Buy fee: 0 for gold/platinum; 99 for standard if selected and has eligible items
   let tryAndBuyFee = 0;
-  if (isTryAndBuy && !isGold) {
+  if (isTryAndBuy && !isSubscriber) {
     const hasEligible = order.items?.some(
       (item) => getProductEligibility(item.product, item.product?.store)
     );
@@ -50,7 +53,8 @@ const enrichOrderWithFees = (order, customerEmail) => {
     ...order,
     deliveryAddr: displayAddress,
     isGold,
-    isTryAndBuy,
+    isPlatinum,
+    isSubscriber,
     deliveryFee,
     tryAndBuyFee,
     totalAmount: finalTotal,

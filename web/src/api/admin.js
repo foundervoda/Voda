@@ -30,6 +30,9 @@ export const approveManagerTbRequest = (id) =>
 export const denyManagerTbRequest = (id) =>
   api.post(`/admin/tb/request/${id}/deny`).then((r) => r.data.data.product);
 
+export const fetchAdminReturnAnalytics = () =>
+  api.get("/admin/return-analytics").then((r) => r.data.data.analytics);
+
 export const fetchAdminInventory = () =>
   api.get("/admin/inventory").then((r) => r.data.data.inventory);
 

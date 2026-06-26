@@ -49,9 +49,11 @@ export default function RootNavigator() {
           options={{ 
             headerShown: true, 
             title: "My Cart", 
-            headerStyle: { backgroundColor: "#fdf9ea" }, 
+            headerStyle: { backgroundColor: "#f2f2f7" }, 
             headerTintColor: "#012a62", 
-            headerTitleStyle: { fontWeight: "700" } 
+            headerTitleStyle: { fontWeight: "600", fontSize: 17, color: "#000000" },
+            headerShadowVisible: false,
+            headerBackTitle: "Home",
           }} 
         />
         <Stack.Screen 
@@ -60,9 +62,11 @@ export default function RootNavigator() {
           options={{ 
             headerShown: true, 
             title: "Checkout", 
-            headerStyle: { backgroundColor: "#fdf9ea" }, 
-            headerTintColor: "#012a62", 
-            headerTitleStyle: { fontWeight: "700" } 
+            headerStyle: { backgroundColor: "#f2f2f7" }, 
+            headerTintColor: "#012a62",
+            headerTitleStyle: { fontWeight: "600", fontSize: 17, color: "#000000" },
+            headerShadowVisible: false,
+            headerBackTitle: "Cart",
           }} 
         />
         <Stack.Screen 
@@ -72,9 +76,10 @@ export default function RootNavigator() {
             headerShown: true, 
             title: "Order Confirmed", 
             headerLeft: () => null,
-            headerStyle: { backgroundColor: "#fdf9ea" }, 
-            headerTintColor: "#012a62", 
-            headerTitleStyle: { fontWeight: "700" } 
+            headerStyle: { backgroundColor: "#f2f2f7" }, 
+            headerTintColor: "#012a62",
+            headerTitleStyle: { fontWeight: "600", fontSize: 17, color: "#000000" },
+            headerShadowVisible: false,
           }} 
         />
         <Stack.Screen 

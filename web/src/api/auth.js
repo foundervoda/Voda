@@ -14,3 +14,8 @@ export async function getMe() {
 export function logout() {
   clearToken();
 }
+
+export async function requestMagicLink(email) {
+  const { data } = await api.post("/auth/magic-link", { email });
+  return data.data.magicLink;
+}

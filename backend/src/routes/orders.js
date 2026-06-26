@@ -75,18 +75,42 @@ router.post(
       });
     }
 
-    // All items must belong to the same store (single-store order)
+    // Determine user tier
+    const isGold = !!(req.user.email?.toLowerCase() ?? "").includes("gold");
+    const isPlatinum = !!(req.user.email?.toLowerCase() ?? "").includes("platinum");
+    const currentTier = isPlatinum ? "Platinum" : isGold ? "Gold" : "Free";
+    const maxAllowedStores = currentTier === "Platinum" ? 5 : currentTier === "Gold" ? 3 : 1;
+
+    // Get unique store IDs and names
     const storeIds = [...new Set(variants.map((v) => v.product.storeId))];
-    if (storeIds.length > 1) {
+    const storeNames = [...new Set(variants.map((v) => v.product.store.name))];
+    const getStoreZone = (name) => (name === "Zara Luxe Hub" ? "Zone B" : "Zone A");
+    const uniqueZones = [...new Set(storeNames.map(getStoreZone))];
+
+    // Validate store limit per order
+    if (storeIds.length > maxAllowedStores) {
       return res.status(400).json({
         data: null,
-        error: { message: "All items must be from the same store", code: "VALIDATION_ERROR" },
+        error: { 
+          message: `Your current ${currentTier} plan allows ordering from a maximum of ${maxAllowedStores} store${maxAllowedStores > 1 ? "s" : ""} per order. Upgrade to access more stores!`, 
+          code: "VALIDATION_ERROR" 
+        },
       });
     }
-    const storeId = storeIds[0];
+
+    // Validate zone access
+    if (currentTier !== "Platinum" && uniqueZones.length > 1) {
+      return res.status(400).json({
+        data: null,
+        error: {
+          message: `Multi-zone ordering is only available on the Platinum plan. All items in your order must belong to the same zone.`,
+          code: "VALIDATION_ERROR"
+        }
+      });
+    }
 
     // Revalidate Try & Buy eligibility on the server
-    const isGold = !!(req.user.email?.toLowerCase() ?? "").includes("gold");
+
     const hasEligible = variants.some((v) => getProductEligibility(v.product, v.product.store));
 
     if (req.body.isTryAndBuy && !hasEligible) {
@@ -97,7 +121,7 @@ router.post(
     }
 
     // Determine if we should activate Try & Buy
-    const shouldHaveTryAndBuy = isGold ? hasEligible : (!!req.body.isTryAndBuy && hasEligible);
+    const shouldHaveTryAndBuy = (isGold || isPlatinum) ? hasEligible : (!!req.body.isTryAndBuy && hasEligible);
 
     // Clean address of any user-submitted suffix and append if active
     const cleanAddr = deliveryAddr.split(" | Try & Buy")[0].trim();
@@ -125,7 +149,9 @@ router.post(
 
     // Emit new_order to the store dashboard, runners pool, and the customer
     const io = req.app.get("io");
-    io.to(`store:${storeId}`).emit("new_order", { order: enriched });
+    storeIds.forEach((sid) => {
+      io.to(`store:${sid}`).emit("new_order", { order: enriched });
+    });
     io.to("runners").emit("new_order", { order: enriched });
     io.to(`user:${req.user.id}`).emit("new_order", { order: enriched });
 
@@ -238,6 +264,22 @@ router.post(
     }
     if (existing.status !== "TRY_BUY_IN_PROGRESS") {
       return res.status(409).json({ data: null, error: { message: "Order is not in Try & Buy progress state", code: "CONFLICT" } });
+    }
+
+    const { selections, returnReason, returnComment } = req.body;
+
+    if (selections) {
+      for (const [variantId, choice] of Object.entries(selections)) {
+        const isReturned = choice === "RETURN";
+        await prisma.orderItem.updateMany({
+          where: { orderId: req.params.id, variantId },
+          data: {
+            isReturned,
+            returnReason: isReturned ? returnReason : null,
+            returnComment: isReturned ? returnComment : null,
+          },
+        });
+      }
     }
 
     // Generate customer→rider return OTP; status stays TRY_BUY_IN_PROGRESS until rider verifies

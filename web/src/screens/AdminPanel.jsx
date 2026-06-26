@@ -10,6 +10,7 @@ import {
   bulkUpdateCategoryTb,
   approveManagerTbRequest,
   denyManagerTbRequest,
+  fetchAdminReturnAnalytics,
   fetchAdminInventory,
   fetchAdminRunners,
   fetchAdminRiders,
@@ -931,6 +932,76 @@ function TryBuyToggles() {
   );
 }
 
+// ── Return Analytics ──────────────────────────────────────────────────────────
+
+function ReturnAnalytics() {
+  const [analytics, setAnalytics] = useState(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    fetchAdminReturnAnalytics().then(setAnalytics).catch(console.error);
+  }, []);
+
+  if (!analytics) return <Spinner />;
+
+  const visible = analytics.filter((a) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      a.reason.toLowerCase().includes(q) ||
+      a.productName.toLowerCase().includes(q) ||
+      a.storeName.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="space-y-4 text-navy">
+      <div className="flex gap-2 items-center">
+        <input
+          type="text"
+          placeholder="Search by reason, product, or store..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-navy placeholder:text-gray-300 focus:outline-none focus:border-navy flex-1 max-w-sm"
+        />
+        <span className="text-sm text-gray-400 ml-auto">
+          {visible.length} patterns surfaced
+        </span>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-cream border-b border-gray-100">
+            <tr>
+              <Th>Return Reason</Th>
+              <Th>Product Name</Th>
+              <Th>Store Name</Th>
+              <Th className="text-right">Return Count</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={4} className="text-center py-12 text-gray-400">
+                  No return analytics found
+                </td>
+              </tr>
+            )}
+            {visible.map((a, i) => (
+              <tr key={i} className="border-b border-gray-50 hover:bg-cream/40 transition">
+                <td className="px-4 py-3 font-semibold text-navy">{a.reason}</td>
+                <td className="px-4 py-3 text-gray-600">{a.productName}</td>
+                <td className="px-4 py-3 text-gray-500">{a.storeName}</td>
+                <td className="px-4 py-3 text-right font-bold text-navy pr-6">{a.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── shared CSV export ─────────────────────────────────────────────────────────
 
 function exportCsv(filename, rows, headers) {
@@ -1063,6 +1134,7 @@ function Inventory() {
   );
 }
 
+
 // ── shared Partner table (Runners + Riders) ───────────────────────────────────
 
 function PartnerTable({ fetchList, fetchOrders, idPrefix, roleLabel, role }) {
@@ -1133,46 +1205,33 @@ function PartnerTable({ fetchList, fetchOrders, idPrefix, roleLabel, role }) {
     return sortDir === "asc" ? (va < vb ? -1 : 1) : (va > vb ? -1 : 1);
   });
 
-  const SortTh = ({ k, children }) => (
-    <th
-      onClick={() => toggleSort(k)}
-      className="px-4 py-2.5 text-left text-[11px] font-semibold text-navy/50 uppercase tracking-wider cursor-pointer select-none hover:text-navy"
-    >
-      {children} {sortKey === k ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-    </th>
-  );
-
-  const csvRows = sorted.map((p) => ({
-    ID: p.loginCode ?? "—", Name: p.email ?? "—", Phone: p.phone ?? "—",
-    Joined: new Date(p.createdAt).toLocaleDateString("en-GB"),
-    "Last Active": p.lastActive ? new Date(p.lastActive).toLocaleDateString("en-GB") : "Never",
-  }));
+  function SortTh({ k, children }) {
+    const isCur = sortKey === k;
+    return (
+      <th className="px-4 py-2.5 text-left font-semibold text-navy/60 cursor-pointer select-none" onClick={() => toggleSort(k)}>
+        <span className="flex items-center gap-1">
+          {children}
+          {isCur && (sortDir === "asc" ? "↑" : "↓")}
+        </span>
+      </th>
+    );
+  }
 
   return (
-    <div className="flex gap-5">
-      {/* Main table */}
-      <div className="flex-1 min-w-0">
-        <div className="flex gap-2 mb-4 items-center">
+    <div className="flex gap-5 items-start">
+      <div className="flex-1 space-y-4">
+        <div className="flex items-center justify-between">
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Search ${roleLabel}s…`}
-            className="border border-navy/15 rounded-lg px-3 py-1.5 text-sm text-navy focus:outline-none focus:border-navy/40 w-56"
+            placeholder={`Search ${roleLabel.toLowerCase()}s by phone, code or email…`}
+            className="border border-navy/15 rounded-lg px-3 py-1.5 text-sm text-navy focus:outline-none focus:border-navy/40 w-80"
           />
-          <span className="text-xs text-navy/40">{sorted.length} {roleLabel.toLowerCase()}s</span>
-          <div className="ml-auto flex gap-2">
-            <button
-              onClick={() => exportCsv(`${roleLabel.toLowerCase()}s.csv`, csvRows, ["ID","Name","Phone","Joined","Last Active"])}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-navy/20 text-navy rounded-lg hover:bg-navy/5 transition"
-            >
-              ↓ Export CSV
-            </button>
-            <button
-              onClick={() => { setShowCreate(true); setFormError(null); setForm({ phone: "", loginCode: "", name: "" }); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-navy text-yellow rounded-lg hover:bg-navy/90 transition"
-            >
-              + New {roleLabel}
-            </button>
-          </div>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="px-4 py-1.5 text-xs font-semibold bg-navy text-yellow rounded-lg hover:bg-navy/90 transition"
+          >
+            + Add {roleLabel}
+          </button>
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-navy/10 bg-white">
@@ -1201,10 +1260,10 @@ function PartnerTable({ fetchList, fetchOrders, idPrefix, roleLabel, role }) {
                   </td>
                   <td className="px-4 py-3 text-navy/80 text-xs">{p.email ?? <span className="text-navy/30 italic">no email</span>}</td>
                   <td className="px-4 py-3 font-mono text-xs text-navy/70">{p.phone}</td>
-                  <td className="px-4 py-3 text-xs text-navy/50">{smartTime(p.createdAt)}</td>
+                  <td className="px-4 py-3 text-xs text-navy/50">{new Date(p.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-xs">
                     <span className={p.lastActive ? "text-emerald-700 font-semibold" : "text-navy/30"}>
-                      {smartTime(p.lastActive)}
+                      {p.lastActive ? new Date(p.lastActive).toLocaleDateString() : "Never"}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-navy/40">History →</td>
@@ -1218,57 +1277,6 @@ function PartnerTable({ fetchList, fetchOrders, idPrefix, roleLabel, role }) {
         </div>
       </div>
 
-      {/* Order history drawer */}
-      {selected && (
-        <div className="w-96 shrink-0 bg-white rounded-xl border border-navy/10 flex flex-col max-h-[calc(100vh-12rem)] overflow-hidden">
-          <div className="px-4 py-3 border-b border-navy/10 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-navy/40 uppercase tracking-wider font-semibold">{roleLabel} History</p>
-              <p className="font-bold text-navy text-sm mt-0.5">
-                {selected.loginCode ?? "—"} · {selected.phone}
-              </p>
-            </div>
-            <button onClick={() => setSelected(null)} className="text-navy/30 hover:text-navy text-lg leading-none">✕</button>
-          </div>
-
-          <div className="px-3 py-2 border-b border-navy/10">
-            <input
-              type="text" value={histSearch} onChange={(e) => setHistSearch(e.target.value)}
-              placeholder="Filter orders…"
-              className="w-full border border-navy/15 rounded-lg px-3 py-1.5 text-xs text-navy focus:outline-none focus:border-navy/40"
-            />
-          </div>
-
-          <div className="overflow-y-auto flex-1 divide-y divide-navy/5">
-            {!history ? (
-              <div className="text-center py-10 text-navy/30 text-sm">Loading…</div>
-            ) : history.length === 0 ? (
-              <div className="text-center py-10 text-navy/30 text-sm">No orders yet</div>
-            ) : (
-              history
-                .filter((o) => !histSearch || o.id.toLowerCase().includes(histSearch.toLowerCase()) ||
-                  o.items.some((i) => i.product.name.toLowerCase().includes(histSearch.toLowerCase())))
-                .map((o) => (
-                  <div key={o.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-mono text-[10px] text-navy/40">#{o.id.slice(-6).toUpperCase()}</span>
-                      <StatusBadge status={o.status} />
-                    </div>
-                    <p className="text-xs text-navy/60 mb-0.5">
-                      {o.items.map((i) => i.product.name).join(", ")}
-                    </p>
-                    <p className="text-[10px] text-navy/30">
-                      {new Date(o.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                      {o.items[0]?.product?.store?.name && ` · ${o.items[0].product.store.name}`}
-                    </p>
-                  </div>
-                ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Create modal */}
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-navy/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-7">
@@ -1363,6 +1371,7 @@ const TABS = [
   { key: "customers",  label: "Customers" },
   { key: "stores",     label: "Stores" },
   { key: "trybuy",     label: "Try & Buy" },
+  { key: "analytics",  label: "Return Analytics" },
   { key: "inventory",  label: "Inventory" },
   { key: "runners",    label: "Runners" },
   { key: "riders",     label: "Riders" },
@@ -1410,6 +1419,7 @@ export default function AdminPanel() {
         <Stores onFilterOrders={(storeId) => drillToOrders({ storeId })} />
       )}
       {tab === "trybuy"    && <TryBuyToggles />}
+      {tab === "analytics" && <ReturnAnalytics />}
       {tab === "inventory" && <Inventory />}
       {tab === "runners"   && <Runners />}
       {tab === "riders"    && <Riders />}

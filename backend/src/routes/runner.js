@@ -104,10 +104,10 @@ router.post(
       include: ORDER_INCLUDE,
     });
 
-    const storeId = existing.items[0]?.product?.storeId;
+    const storeIds = [...new Set(existing.items.map(item => item.product?.storeId).filter(Boolean))];
     const io = req.app.get("io");
     io.to(`order:${order.id}`).emit("order_update", { order });
-    if (storeId) io.to(`store:${storeId}`).emit("order_update", { order });
+    storeIds.forEach(sid => io.to(`store:${sid}`).emit("order_update", { order }));
 
     res.json({ data: { order }, error: null });
   })
@@ -177,4 +177,76 @@ router.post(
   })
 );
 
+// POST /api/runner/orders/:id/accept-return — verify rider→runner OTP, generate runner→store OTP
+router.post(
+  "/orders/:id/accept-return",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const { otp } = req.body;
+    const existing = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: { items: { include: { product: true } } },
+    });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+    if (existing.status !== "RETURNING") {
+      return res.status(409).json({ data: null, error: { message: "Order is not awaiting return", code: "CONFLICT" } });
+    }
+    if (!otp || existing.deliveryOtp !== String(otp).trim()) {
+      return res.status(400).json({ data: null, error: { message: "Incorrect rider OTP", code: "INVALID_OTP" } });
+    }
+
+    const storeOtp = genOtp(); // runner→store OTP
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { deliveryOtp: storeOtp },
+      include: ORDER_INCLUDE,
+    });
+
+    const storeIds = [...new Set(existing.items.map(item => item.product?.storeId).filter(Boolean))];
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order });
+    storeIds.forEach(sid => io.to(`store:${sid}`).emit("order_update", { order }));
+
+    res.json({ data: { order }, error: null });
+  })
+);
+
+// POST /api/runner/orders/:id/complete-return — verify runner→store OTP → RETURNED
+router.post(
+  "/orders/:id/complete-return",
+  requireAuth,
+  requireRole("RUNNER"),
+  asyncHandler(async (req, res) => {
+    const { otp } = req.body;
+    const existing = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: { items: { include: { product: true } } },
+    });
+    if (!existing) {
+      return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    }
+    if (existing.status !== "RETURNING") {
+      return res.status(409).json({ data: null, error: { message: "Order is not awaiting return", code: "CONFLICT" } });
+    }
+    if (!otp || existing.deliveryOtp !== String(otp).trim()) {
+      return res.status(400).json({ data: null, error: { message: "Incorrect store OTP", code: "INVALID_OTP" } });
+    }
+
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status: "RETURNED", deliveryOtp: null },
+      include: ORDER_INCLUDE,
+    });
+
+    const storeIds = [...new Set(existing.items.map(item => item.product?.storeId).filter(Boolean))];
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order });
+    storeIds.forEach(sid => io.to(`store:${sid}`).emit("order_update", { order }));
+
+    res.json({ data: { order }, error: null });
+  })
+);
 module.exports = router;

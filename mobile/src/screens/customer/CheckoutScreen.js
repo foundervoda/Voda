@@ -25,7 +25,9 @@ export default function CheckoutScreen({ navigation }) {
   const [error, setError] = useState(null);
 
   const [tbSelected, setTbSelected] = useState(false);
+  const isPlatinumSubscriber = !!(user?.email?.toLowerCase() ?? "").includes("platinum");
   const isGoldSubscriber = !!(user?.email?.toLowerCase() ?? "").includes("gold");
+  const isSubscriber = isGoldSubscriber || isPlatinumSubscriber;
 
   // Partition/Check eligibility
   const hasEligible = cart.some(
@@ -36,14 +38,14 @@ export default function CheckoutScreen({ navigation }) {
   );
   const noneEligible = !hasEligible;
 
-  // If Gold, T&B is automatically active on all eligible items.
+  // If Subscriber, T&B is automatically active on all eligible items.
   // Standard members choose via toggle.
-  const isTryAndBuy = isGoldSubscriber ? hasEligible : (tbSelected && hasEligible);
+  const isTryAndBuy = isSubscriber ? hasEligible : (tbSelected && hasEligible);
 
   // Fee calculation
   const subtotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const deliveryFee = isGoldSubscriber ? 0 : 150;
-  const tryAndBuyFee = (!isGoldSubscriber && isTryAndBuy) ? 99 : 0;
+  const deliveryFee = isSubscriber ? 0 : 150;
+  const tryAndBuyFee = (!isSubscriber && isTryAndBuy) ? 99 : 0;
   const totalAmount = subtotal + deliveryFee + tryAndBuyFee;
 
   const handlePlaceOrder = async () => {
@@ -54,7 +56,7 @@ export default function CheckoutScreen({ navigation }) {
     setError(null);
     setLoading(true);
     try {
-      const order = await placeOrder(address.trim(), isGoldSubscriber, isTryAndBuy);
+      const order = await placeOrder(address.trim(), isSubscriber, isTryAndBuy);
       navigation.replace("OrderConfirm", { order });
     } catch (err) {
       setError(err?.response?.data?.error?.message ?? "Could not place order");
@@ -70,7 +72,19 @@ export default function CheckoutScreen({ navigation }) {
       <ScrollView contentContainerStyle={[s.content, { paddingBottom: Math.max(insets.bottom, 24) + 20 }]} showsVerticalScrollIndicator={false}>
         
         {/* Subscription Tier Banner */}
-        {isGoldSubscriber ? (
+        {isPlatinumSubscriber ? (
+          <View style={s.platinumBanner}>
+            <View style={s.bannerIconCirclePlatinum}>
+              <Ionicons name="diamond" size={16} color="#ffffff" />
+            </View>
+            <View style={s.bannerTextWrap}>
+              <Text style={s.platinumBannerTitle}>Voda Platinum Member</Text>
+              <Text style={s.platinumBannerDesc}>
+                Priority FREE delivery & automatic 20-min Try & Buy are active on this order.
+              </Text>
+            </View>
+          </View>
+        ) : isGoldSubscriber ? (
           <View style={s.goldBanner}>
             <View style={s.bannerIconCircleGold}>
               <Ionicons name="sparkles" size={16} color="#012a62" />
@@ -78,7 +92,7 @@ export default function CheckoutScreen({ navigation }) {
             <View style={s.bannerTextWrap}>
               <Text style={s.goldBannerTitle}>Voda Gold Member</Text>
               <Text style={s.goldBannerDesc}>
-                Free delivery & automatic Try & Buy are active on this order.
+                Free delivery & automatic 15-min Try & Buy are active on this order.
               </Text>
             </View>
           </View>
@@ -90,7 +104,7 @@ export default function CheckoutScreen({ navigation }) {
             <View style={s.bannerTextWrap}>
               <Text style={s.standardBannerTitle}>Standard Account</Text>
               <Text style={s.standardBannerDesc}>
-                Upgrade to Voda Gold for free delivery & free Try & Buy. Tap to view benefits →
+                Upgrade to Gold or Platinum for free delivery & Try & Buy. Tap to view benefits →
               </Text>
             </View>
           </Pressable>
@@ -149,17 +163,17 @@ export default function CheckoutScreen({ navigation }) {
           })}
         </View>
 
-        {/* Try & Buy Info Card (Gold vs Standard) */}
-        {isGoldSubscriber ? (
+        {/* Try & Buy Info Card (Gold/Platinum vs Standard) */}
+        {isSubscriber ? (
           <View style={[s.sectionCard, s.tbGoldCard]}>
             <View style={s.tbHeaderRow}>
-              <Ionicons name="shirt" size={20} color="#012a62" />
-              <Text style={s.tbCardTitleGold}>Gold Try & Buy Benefit</Text>
+              <Ionicons name={isPlatinumSubscriber ? "diamond" : "shirt"} size={20} color="#012a62" />
+              <Text style={s.tbCardTitleGold}>{isPlatinumSubscriber ? "Platinum" : "Gold"} Try & Buy Benefit</Text>
             </View>
             <Text style={s.tbCardDescGold}>
               {hasEligible
-                ? "Try & Buy has been applied automatically to eligible items at no cost. Try them at your door for up to 10 mins. Keep and pay only for what fits!"
-                : "You have free Try & Buy, but none of the items in your basket are eligible (Boots are ineligible for Try & Buy)."}
+                ? `Try & Buy has been applied automatically to eligible items at no cost. Try them at your door for up to ${isPlatinumSubscriber ? "20" : "15"} mins. Keep and pay only for what fits!`
+                : `You have free Try & Buy, but none of the items in your basket are eligible (Boots are ineligible for Try & Buy).`}
             </Text>
           </View>
         ) : (
@@ -223,7 +237,7 @@ export default function CheckoutScreen({ navigation }) {
 
           <View style={s.breakdownRow}>
             <Text style={s.breakdownLabel}>Delivery Fee</Text>
-            {isGoldSubscriber ? (
+            {isSubscriber ? (
               <View style={s.priceWrap}>
                 <Text style={s.strikeThroughPrice}>₹150</Text>
                 <Text style={s.freeText}>FREE</Text>
@@ -236,7 +250,7 @@ export default function CheckoutScreen({ navigation }) {
           {isTryAndBuy && (
             <View style={s.breakdownRow}>
               <Text style={s.breakdownLabel}>Try & Buy Fee</Text>
-              {isGoldSubscriber ? (
+              {isSubscriber ? (
                 <Text style={s.freeText}>FREE</Text>
               ) : (
                 <Text style={s.breakdownValue}>₹99</Text>
@@ -328,6 +342,42 @@ const s = StyleSheet.create({
     padding: 20,
   },
   // Banners
+  platinumBanner: {
+    flexDirection: "row",
+    backgroundColor: "#012a62",
+    borderColor: "#fdde59",
+    borderWidth: 1.5,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    alignItems: "center",
+    shadowColor: "#012a62",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  bannerIconCirclePlatinum: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  platinumBannerTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#fdde59",
+    marginBottom: 2,
+  },
+  platinumBannerDesc: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.8)",
+    fontWeight: "600",
+    lineHeight: 16,
+  },
   goldBanner: {
     flexDirection: "row",
     backgroundColor: "#fffbeb",
