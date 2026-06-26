@@ -13,11 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useOrderStore } from "../../store/useOrderStore";
 import { useAuthStore } from "../../store/useAuthStore";
-
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
+import { formatRupees as formatRupeePrice } from "../../utils/price";
 
 export default function CheckoutScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -29,8 +25,8 @@ export default function CheckoutScreen({ navigation }) {
   const [error, setError] = useState(null);
 
   const [tbSelected, setTbSelected] = useState(false);
-  const isPlatinumSubscriber = !!user?.email?.toLowerCase().includes("platinum");
-  const isGoldSubscriber = !!user?.email?.toLowerCase().includes("gold");
+  const isPlatinumSubscriber = !!(user?.email?.toLowerCase() ?? "").includes("platinum");
+  const isGoldSubscriber = !!(user?.email?.toLowerCase() ?? "").includes("gold");
   const isSubscriber = isGoldSubscriber || isPlatinumSubscriber;
 
   // Partition/Check eligibility

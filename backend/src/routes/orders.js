@@ -76,8 +76,8 @@ router.post(
     }
 
     // Determine user tier
-    const isGold = req.user.email.toLowerCase().includes("gold");
-    const isPlatinum = req.user.email.toLowerCase().includes("platinum");
+    const isGold = !!(req.user.email?.toLowerCase() ?? "").includes("gold");
+    const isPlatinum = !!(req.user.email?.toLowerCase() ?? "").includes("platinum");
     const currentTier = isPlatinum ? "Platinum" : isGold ? "Gold" : "Free";
     const maxAllowedStores = currentTier === "Platinum" ? 5 : currentTier === "Gold" ? 3 : 1;
 
@@ -110,6 +110,7 @@ router.post(
     }
 
     // Revalidate Try & Buy eligibility on the server
+
     const hasEligible = variants.some((v) => getProductEligibility(v.product, v.product.store));
 
     if (req.body.isTryAndBuy && !hasEligible) {

@@ -11,6 +11,13 @@ const getProductEligibility = (product, store) => {
   return product.category === "Sneakers" || product.category === "Apparel";
 };
 
+function toRupees(dbPrice) {
+  const p = Number(dbPrice) || 0;
+  if (p === 0) return 0;
+  if (p > 1000) return Math.round(p);
+  return Math.round(p * 80);
+}
+
 const enrichOrderWithFees = (order, customerEmail) => {
   if (!order) return null;
   const emailLower = customerEmail?.toLowerCase() || "";
@@ -32,7 +39,7 @@ const enrichOrderWithFees = (order, customerEmail) => {
     }
   }
 
-  const itemsTotal = order.items?.reduce((sum, item) => sum + Number(item.product?.price || 0) * item.quantity, 0) || 0;
+  const itemsTotal = order.items?.reduce((sum, item) => sum + toRupees(item.product?.price || 0) * item.quantity, 0) || 0;
   const finalTotal = itemsTotal + deliveryFee + tryAndBuyFee;
   
   // Clean up delivery address for display

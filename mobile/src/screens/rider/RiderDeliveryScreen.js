@@ -13,6 +13,8 @@ export default function RiderDeliveryScreen({ route, navigation }) {
   const [otpInput, setOtpInput] = useState("");
   const [returnOtpInput, setReturnOtpInput] = useState("");
   const [showReturnOtp, setShowReturnOtp] = useState(false);
+  const [runnerOtpInput, setRunnerOtpInput] = useState("");
+  const [handoffLoading, setHandoffLoading] = useState(false);
 
   const isTryBuy = order.deliveryAddr?.includes(" | Try & Buy") || order.isTryAndBuy;
 
@@ -125,6 +127,22 @@ export default function RiderDeliveryScreen({ route, navigation }) {
     }
   };
 
+  const confirmRunnerHandoff = async () => {
+    if (!runnerOtpInput.trim()) {
+      Alert.alert("Error", "Enter the 6-digit code shown on the runner's phone");
+      return;
+    }
+    setHandoffLoading(true);
+    try {
+      await api.post(`/rider/orders/${order.id}/confirm-runner-handoff`, { otp: runnerOtpInput.trim() });
+      navigation.popToTop();
+    } catch (err) {
+      Alert.alert("Error", err.response?.data?.error?.message ?? "Incorrect code — ask the runner to show you their screen");
+    } finally {
+      setHandoffLoading(false);
+    }
+  };
+
   const closeDelivery = () => {
     navigation.popToTop();
   };
@@ -211,22 +229,27 @@ export default function RiderDeliveryScreen({ route, navigation }) {
           </>
         )}
 
-        {/* Return in progress — show rider→runner OTP for runner to scan */}
+        {/* Return in progress — rider enters runner's OTP at kiosk to hand off package */}
         {order.status === "RETURNING" && (
           <View style={styles.returningCard}>
             <Text style={styles.returningIcon}>↩</Text>
-            <Text style={styles.returningTitle}>Return Initiated</Text>
+            <Text style={styles.returningTitle}>Return In Progress</Text>
             <Text style={styles.returningSubtitle}>
-              Show this code to the runner collecting the package. They must enter it to accept the return job.
+              Meet the runner at the return kiosk. Ask the runner to show you their 6-digit code, then enter it below to hand over the package.
             </Text>
-            {order.deliveryOtp ? (
-              <View style={styles.returningOtpBox}>
-                <Text style={styles.returningOtpLabel}>RUNNER HANDOFF CODE</Text>
-                <Text style={styles.returningOtpCode}>{order.deliveryOtp}</Text>
-              </View>
-            ) : null}
-            <Pressable style={[styles.btn, { marginTop: 16, width: "100%" }]} onPress={closeDelivery}>
-              <Text style={styles.btnText}>Done — Back to Dashboard</Text>
+            <Text style={styles.returningOtpLabel}>ENTER RUNNER'S CODE</Text>
+            <TextInput
+              style={styles.otpInput}
+              placeholder="6-digit code"
+              placeholderTextColor="#012a6240"
+              keyboardType="number-pad"
+              maxLength={6}
+              value={runnerOtpInput}
+              onChangeText={setRunnerOtpInput}
+              autoFocus
+            />
+            <Pressable style={[styles.btn, { marginTop: 12, width: "100%" }]} onPress={confirmRunnerHandoff} disabled={handoffLoading}>
+              {handoffLoading ? <ActivityIndicator color={S} /> : <Text style={styles.btnText}>Confirm Handoff — Done</Text>}
             </Pressable>
           </View>
         )}
@@ -458,7 +481,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: "100%",
   },
-  returningOtpLabel: { fontSize: 9, fontWeight: "800", color: "rgba(255,255,255,0.7)", letterSpacing: 1, marginBottom: 4 },
+  returningOtpLabel: { fontSize: 9, fontWeight: "800", color: "#bf360c", letterSpacing: 1, marginBottom: 4, marginTop: 12 },
   returningOtpCode: { fontSize: 30, fontWeight: "900", color: "#fff", letterSpacing: 8, fontVariant: ["tabular-nums"] },
   expiredCard: {
     backgroundColor: "#fff8e1",

@@ -12,6 +12,9 @@ model User {
   phone          String
   role           Role
   password       String?
+  loginCode      String?      @unique
+  otp            String?
+  otpExpiry      DateTime?
   storeId        String?
   createdAt      DateTime     @default(now())
   customerOrders Order[]      @relation("CustomerOrders")
@@ -70,7 +73,8 @@ model Order {
   runnerId     String?
   riderId      String?
   createdAt    DateTime    @default(now())
-  deliveryOtp  String?
+  deliveryOtp   String?
+  kioskVerified Boolean  @default(false)
   customer     User        @relation("CustomerOrders", fields: [customerId], references: [id])
   rider        User?       @relation("RiderOrders", fields: [riderId], references: [id])
   runner       User?       @relation("RunnerOrders", fields: [runnerId], references: [id])
@@ -136,6 +140,7 @@ enum OrderStatus {
   TRY_BUY_IN_PROGRESS
   DELIVERED
   RETURNING
+  WITH_RUNNER
   RETURNED
   REFUNDED
 }

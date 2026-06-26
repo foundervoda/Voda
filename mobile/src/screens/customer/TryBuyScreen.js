@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { toRupees, formatRupees } from "../../utils/price";
 import {
   View,
   Text,
@@ -42,10 +43,7 @@ function calcDisplaySecs(tryTimerEnd) {
   return Math.max(0, Math.floor((displayEnd - Date.now()) / 1000));
 }
 
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
+const formatRupeePrice = formatRupees;
 
 function pad(n) { return String(n).padStart(2, "0"); }
 
@@ -109,7 +107,7 @@ export default function TryBuyScreen({ route, navigation }) {
   let returnsTotal = 0;
   items.forEach((item) => {
     const choice = selections[item.variantId] ?? "KEEP";
-    const cost = Number(item.product.price) * item.quantity;
+    const cost = toRupees(item.product.price) * item.quantity;
     if (choice === "KEEP") keepsSubtotal += cost;
     else returnsTotal += cost;
   });

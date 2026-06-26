@@ -74,8 +74,8 @@ export default function ProfileScreen({ navigation }) {
     setFitApparel(savedSizes.fitApparel || "");
   }, [savedSizes.sizeSneakers, savedSizes.sizeApparel, savedSizes.fitApparel]);
 
-  const isGold = user?.email?.toLowerCase().includes("gold");
-  const isPlatinum = user?.email?.toLowerCase().includes("platinum");
+  const isGold = !!(user?.email?.toLowerCase() ?? "").includes("gold");
+  const isPlatinum = !!(user?.email?.toLowerCase() ?? "").includes("platinum");
   const tier = isPlatinum ? "Platinum" : isGold ? "Gold" : "Free";
 
   const tierColor = isPlatinum ? "#1e3a8a" : isGold ? "#b8860b" : "#64748b";

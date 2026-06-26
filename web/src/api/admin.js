@@ -33,3 +33,20 @@ export const denyManagerTbRequest = (id) =>
 export const fetchAdminReturnAnalytics = () =>
   api.get("/admin/return-analytics").then((r) => r.data.data.analytics);
 
+export const fetchAdminInventory = () =>
+  api.get("/admin/inventory").then((r) => r.data.data.inventory);
+
+export const fetchAdminRunners = () =>
+  api.get("/admin/runners").then((r) => r.data.data.runners);
+
+export const fetchAdminRiders = () =>
+  api.get("/admin/riders").then((r) => r.data.data.riders);
+
+export const fetchRunnerOrders = (id) =>
+  api.get(`/admin/runners/${id}/orders`).then((r) => r.data.data.orders);
+
+export const fetchRiderOrders = (id) =>
+  api.get(`/admin/riders/${id}/orders`).then((r) => r.data.data.orders);
+
+export const createPartner = (data) =>
+  api.post("/admin/partners", data).then((r) => r.data.data.user);

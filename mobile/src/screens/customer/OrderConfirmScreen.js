@@ -1,10 +1,6 @@
 import { View, Text, Pressable, StyleSheet, ScrollView, StatusBar } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
+import { toRupees, formatRupees as formatRupeePrice } from "../../utils/price";
 
 export default function OrderConfirmScreen({ route, navigation }) {
   const { order } = route.params;
@@ -50,7 +46,7 @@ export default function OrderConfirmScreen({ route, navigation }) {
               )}
             </View>
             <Text style={s.itemQty}>× {item.quantity}</Text>
-            <Text style={s.itemPrice}>₹{formatRupeePrice(item.product.price * item.quantity)}</Text>
+            <Text style={s.itemPrice}>₹{formatRupeePrice(toRupees(item.product.price) * item.quantity)}</Text>
           </View>
         ))}
       </View>
@@ -88,10 +84,15 @@ export default function OrderConfirmScreen({ route, navigation }) {
         </View>
       </View>
 
+      {/* Track Order */}
+      <Pressable style={s.btn} onPress={() => navigation.replace("TrackOrder", { order })}>
+        <Ionicons name="navigate" size={18} color="#012a62" style={{ marginRight: 8 }} />
+        <Text style={s.btnText}>Track My Order</Text>
+      </Pressable>
+
       {/* Back to Home Button */}
-      <Pressable style={s.btn} onPress={() => navigation.navigate("CustomerTabs", { screen: "MallDirectory", params: { screen: "StoresList" } })}>
-        <Text style={s.btnText}>Back to Mall Directory</Text>
-        <Ionicons name="arrow-forward" size={18} color="#012a62" style={{ marginLeft: 6 }} />
+      <Pressable style={[s.btn, s.btnSecondary]} onPress={() => navigation.navigate("CustomerTabs")}>
+        <Text style={[s.btnText, { color: "#012a6280" }]}>Back to Mall Directory</Text>
       </Pressable>
     </ScrollView>
   );
@@ -129,6 +130,7 @@ const s = StyleSheet.create({
   freeText:   { color: "#16a34a", fontSize: 13, fontWeight: "800", flex: 1, textAlign: "right" },
   activeText: { color: "#012a62", fontSize: 13, fontWeight: "700", flex: 1, textAlign: "right" },
   inactiveText: { color: "#dc2626", fontSize: 13, fontWeight: "700", flex: 1, textAlign: "right" },
-  btn:       { marginTop: 8, backgroundColor: "#fdde59", borderColor: "#012a62", borderWidth: 1.5, borderRadius: 14, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", width: "100%", shadowColor: "#012a62", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 3 },
-  btnText:   { color: "#012a62", fontWeight: "900", fontSize: 16 },
+  btn:         { marginTop: 8, backgroundColor: "#fdde59", borderColor: "#012a62", borderWidth: 1.5, borderRadius: 14, paddingVertical: 15, flexDirection: "row", alignItems: "center", justifyContent: "center", width: "100%", shadowColor: "#012a62", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 3 },
+  btnSecondary:{ backgroundColor: "transparent", borderColor: "#012a6220", shadowOpacity: 0, elevation: 0 },
+  btnText:     { color: "#012a62", fontWeight: "900", fontSize: 16 },
 });

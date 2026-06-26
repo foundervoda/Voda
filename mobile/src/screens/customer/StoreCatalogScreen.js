@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { toRupees, formatRupees } from "../../utils/price";
 import {
   View,
   Text,
@@ -57,10 +58,7 @@ const FALLBACK_PRODUCTS = [
   }
 ];
 
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
+const formatRupeePrice = formatRupees;
 
 const getProductImage = (item) => {
   const basePath = "http://localhost:3001";
@@ -97,7 +95,7 @@ export default function StoreCatalogScreen({ route, navigation }) {
   const storeCategories = ["All", ...new Set(storeProducts.map((p) => p.category))];
 
   const displayedProducts = storeProducts.filter((product) => {
-    if (searchQuery && !product.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+    if (searchQuery && !(product.name ?? "").toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
     }
     if (selectedCategory !== "All" && product.category !== selectedCategory) {
@@ -130,7 +128,7 @@ export default function StoreCatalogScreen({ route, navigation }) {
 
   const renderProductCard = ({ item }) => {
     const imageSource = getProductImage(item);
-    const price = Number(item.price) || 0;
+    const price = toRupees(item.price);
 
     return (
       <Pressable

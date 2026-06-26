@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { toRupees, formatRupees } from "../../utils/price";
 import {
   View,
   Text,
@@ -168,24 +169,8 @@ const MOCK_PRODUCTS_LIST = [
 
 const MOCK_PRODUCT = MOCK_PRODUCTS_LIST[0];
 
-const convertToPremiumRupees = (rawPrice) => {
-  const price = Number(rawPrice) || 0;
-  if (price === 0) return 0;
-  if (price > 1000) return price; // Already in Rupees!
-  
-  if (Math.abs(price - 149.90) < 0.1) return 11990;
-  if (Math.abs(price - 79.99) < 0.1) return 6399;
-  if (Math.abs(price - 89.99) < 0.1) return 7199;
-  if (Math.abs(price - 119.99) < 0.1) return 9599;
-
-  const inrBase = price * 80;
-  return Math.round(inrBase / 100) * 100 - 1;
-};
-
-const formatRupeePrice = (amount) => {
-  const rounded = Math.round(amount);
-  return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-};
+const convertToPremiumRupees = toRupees;
+const formatRupeePrice = formatRupees;
 
 const getProductImage = (item) => {
   const basePath = "http://localhost:3001";

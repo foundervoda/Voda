@@ -44,6 +44,42 @@ npm install
 npm run dev
 ```
 
+## Test accounts
+
+All accounts use the login screen in the mobile app. Customers enter their phone number → OTP appears in the yellow dev box on screen (no SMS sent). Runners and riders enter their login code directly.
+
+### Customers (mobile app)
+
+| Role | Phone | Notes |
+|---|---|---|
+| **Voda Gold** customer | `9999999999` | Free delivery + automatic Try & Buy |
+| **Standard** customer | `1111111111` | Paid delivery (₹150) + optional Try & Buy (₹99) |
+
+### Runners (mobile app)
+
+| Login code | Notes |
+|---|---|
+| `R000` | Default test runner |
+
+### Delivery riders (mobile app)
+
+| Login code | Notes |
+|---|---|
+| `D000` | Default test rider |
+
+### Store / admin (web dashboard — `localhost:5173`)
+
+| Email | Password | Role |
+|---|---|---|
+| `admin@voda.test` | `voda1234` | Super admin |
+| `store@voda.test` | `voda1234` | Store staff |
+
+### Kiosk (web — `localhost:5174` or via the Kiosk tab in the store dashboard)
+
+No login required — scan or type an order's short ID (last 6 chars of the order UUID, e.g. `FED9B6`).
+
+---
+
 ## Conventions
 
 PascalCase components, camelCase functions/files, kebab-case API routes, snake_case

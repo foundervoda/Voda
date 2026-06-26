@@ -247,4 +247,161 @@ router.get(
   })
 );
 
+// GET /api/admin/inventory — all products with variants/stock, category, T&B
+router.get(
+  "/inventory",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const products = await prisma.product.findMany({
+      include: {
+        store: { select: { id: true, name: true, tbOverride: true } },
+        variants: { select: { id: true, size: true, color: true, stock: true } },
+      },
+      orderBy: [{ store: { name: "asc" } }, { name: "asc" }],
+    });
+
+    const rows = products.map((p) => ({
+      id: p.id,
+      sku: p.id.replace(/-/g, "").toUpperCase().slice(0, 10),
+      name: p.name,
+      category: p.category,
+      store: p.store.name,
+      storeId: p.storeId,
+      price: Number(p.price),
+      totalStock: p.variants.reduce((s, v) => s + v.stock, 0),
+      variantCount: p.variants.length,
+      variants: p.variants,
+      tbEligible: p.tbEligible,
+      tbOverride: p.store.tbOverride,
+    }));
+
+    res.json({ data: { inventory: rows }, error: null });
+  })
+);
+
+// POST /api/admin/partners — create a runner or rider
+router.post(
+  "/partners",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { name, phone, loginCode, role } = req.body;
+    if (!phone || !loginCode || !role) {
+      return res.status(400).json({ data: null, error: { message: "phone, loginCode, and role are required", code: "VALIDATION_ERROR" } });
+    }
+    if (!["RUNNER", "RIDER"].includes(role)) {
+      return res.status(400).json({ data: null, error: { message: "role must be RUNNER or RIDER", code: "VALIDATION_ERROR" } });
+    }
+    const codePattern = role === "RUNNER" ? /^R\d{3}$/ : /^D\d{3}$/;
+    if (!codePattern.test(loginCode.toUpperCase())) {
+      return res.status(400).json({
+        data: null,
+        error: { message: `${role === "RUNNER" ? "Runner" : "Rider"} code must be ${role === "RUNNER" ? "R" : "D"} followed by 3 digits`, code: "VALIDATION_ERROR" },
+      });
+    }
+    const existing = await prisma.user.findUnique({ where: { loginCode: loginCode.toUpperCase() } });
+    if (existing) {
+      return res.status(409).json({ data: null, error: { message: "That ID code is already taken", code: "CODE_TAKEN" } });
+    }
+    const user = await prisma.user.create({
+      data: {
+        phone: phone.trim(),
+        loginCode: loginCode.toUpperCase(),
+        role,
+        email: name?.trim() ? `${loginCode.toLowerCase()}@partner.voda` : null,
+      },
+      select: { id: true, email: true, phone: true, loginCode: true, role: true, createdAt: true },
+    });
+    res.status(201).json({ data: { user }, error: null });
+  })
+);
+
+// GET /api/admin/runners — all runners with loginCode, last active
+router.get(
+  "/runners",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const users = await prisma.user.findMany({
+      where: { role: "RUNNER" },
+      select: {
+        id: true, email: true, phone: true, loginCode: true, createdAt: true,
+        runnerOrders: {
+          select: { createdAt: true, status: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const runners = users.map((u) => ({
+      ...u,
+      lastActive: u.runnerOrders[0]?.createdAt ?? null,
+      totalOrders: undefined,
+      runnerOrders: undefined,
+    }));
+    res.json({ data: { runners }, error: null });
+  })
+);
+
+// GET /api/admin/riders — all delivery partners with loginCode, last active
+router.get(
+  "/riders",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const users = await prisma.user.findMany({
+      where: { role: "RIDER" },
+      select: {
+        id: true, email: true, phone: true, loginCode: true, createdAt: true,
+        riderOrders: {
+          select: { createdAt: true, status: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const riders = users.map((u) => ({
+      ...u,
+      lastActive: u.riderOrders[0]?.createdAt ?? null,
+      riderOrders: undefined,
+    }));
+    res.json({ data: { riders }, error: null });
+  })
+);
+
+// GET /api/admin/runners/:id/orders — order history for a runner
+router.get(
+  "/runners/:id/orders",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const orders = await prisma.order.findMany({
+      where: { runnerId: req.params.id },
+      include: {
+        items: { include: { product: { select: { name: true, store: { select: { name: true } } } } } },
+        customer: { select: { phone: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    res.json({ data: { orders }, error: null });
+  })
+);
+
+// GET /api/admin/riders/:id/orders — order history for a rider
+router.get(
+  "/riders/:id/orders",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const orders = await prisma.order.findMany({
+      where: { riderId: req.params.id },
+      include: {
+        items: { include: { product: { select: { name: true, store: { select: { name: true } } } } } },
+        customer: { select: { phone: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    res.json({ data: { orders }, error: null });
+  })
+);
+
 module.exports = router;

@@ -96,8 +96,11 @@ export default function VodaGoldScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
 
   let currentTier = "Free";
-  if (user?.email?.toLowerCase().includes("platinum")) currentTier = "Platinum";
-  else if (user?.email?.toLowerCase().includes("gold")) currentTier = "Gold";
+  if (user?.email) {
+    const emailLower = user.email.toLowerCase();
+    if (emailLower.includes("platinum")) currentTier = "Platinum";
+    else if (emailLower.includes("gold")) currentTier = "Gold";
+  }
 
   const [activeTab, setActiveTab] = useState(currentTier);
 
