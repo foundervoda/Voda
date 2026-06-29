@@ -1,7 +1,11 @@
 const { Router } = require("express");
+const crypto = require("crypto");
 const prisma = require("../lib/prisma");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { asyncHandler } = require("../middleware/errorHandler");
+
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const inviteUrl = (token) => `${FRONTEND_URL}/onboard/${token}`;
 
 const router = Router();
 const guard = [requireAuth, requireRole("ADMIN")];
@@ -98,10 +102,65 @@ router.get(
         orderCount: await prisma.order.count({
           where: { items: { some: { product: { storeId: s.id } } } },
         }),
+        inviteUrl: s.inviteToken ? inviteUrl(s.inviteToken) : null,
       }))
     );
 
     res.json({ data: { stores: storesWithOrderCounts }, error: null });
+  })
+);
+
+// POST /api/admin/stores — create store skeleton + generate invite link
+router.post(
+  "/stores",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { name, location, pinCode } = req.body;
+    if (!name || !location || !pinCode) {
+      return res.status(400).json({ data: null, error: { message: "name, location and pinCode are required", code: "VALIDATION_ERROR" } });
+    }
+    const token = crypto.randomBytes(16).toString("hex");
+    const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const store = await prisma.store.create({
+      data: { name, location, pinCode, inviteToken: token, inviteExpiry: expiry, status: "INVITED" },
+    });
+    res.json({ data: { store, inviteUrl: inviteUrl(token) }, error: null });
+  })
+);
+
+// POST /api/admin/stores/:id/regenerate-invite — new token, reset to INVITED
+router.post(
+  "/stores/:id/regenerate-invite",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const token = crypto.randomBytes(16).toString("hex");
+    const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const store = await prisma.store.update({
+      where: { id: req.params.id },
+      data: { inviteToken: token, inviteExpiry: expiry, status: "INVITED" },
+    });
+    res.json({ data: { store, inviteUrl: inviteUrl(token) }, error: null });
+  })
+);
+
+// PATCH /api/admin/stores/:id/approve — PENDING → ACTIVE
+router.patch(
+  "/stores/:id/approve",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const store = await prisma.store.update({ where: { id: req.params.id }, data: { status: "ACTIVE" } });
+    console.log(`[STORE APPROVED] ${store.name} (${store.id}) is now live`);
+    res.json({ data: { store }, error: null });
+  })
+);
+
+// PATCH /api/admin/stores/:id/reject — PENDING → REJECTED
+router.patch(
+  "/stores/:id/reject",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const store = await prisma.store.update({ where: { id: req.params.id }, data: { status: "REJECTED" } });
+    res.json({ data: { store }, error: null });
   })
 );
 

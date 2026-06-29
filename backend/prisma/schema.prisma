@@ -25,15 +25,30 @@ model User {
   store          Store?       @relation(fields: [storeId], references: [id])
 }
 
+enum StoreStatus {
+  INVITED
+  PENDING
+  ACTIVE
+  REJECTED
+}
+
 model Store {
-  id          String    @id @default(uuid())
-  name        String
-  location    String
-  createdAt   DateTime  @default(now())
-  tbOverride  String    @default("NONE")
-  tnbOverride Boolean?
-  products    Product[]
-  staff       User[]
+  id           String      @id @default(uuid())
+  name         String
+  location     String
+  phone        String      @default("")
+  email        String?
+  category     String?
+  logoUrl      String?
+  pinCode      String?
+  inviteToken  String?     @unique
+  inviteExpiry DateTime?
+  status       StoreStatus @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  tbOverride   String      @default("NONE")
+  tnbOverride  Boolean?
+  products     Product[]
+  staff        User[]
 }
 
 model Product {
@@ -43,6 +58,7 @@ model Product {
   images            String[]
   category          String
   trending          Boolean      @default(false)
+  active            Boolean      @default(true)
   storeId           String
   tbEligible        Boolean?
   tbRequest         String?

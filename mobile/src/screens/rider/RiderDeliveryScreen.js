@@ -11,9 +11,9 @@ export default function RiderDeliveryScreen({ route, navigation }) {
   const [order, setOrder] = useState(route.params.order);
   const [loading, setLoading] = useState(false);
   const [otpInput, setOtpInput] = useState("");
-  const [returnOtpInput, setReturnOtpInput] = useState("");
-  const [showReturnOtp, setShowReturnOtp] = useState(false);
   const [runnerOtpInput, setRunnerOtpInput] = useState("");
+  const [pendingOtpMode, setPendingOtpMode] = useState(null); // "keep" | "return" | null
+  const [pendingOtpInput, setPendingOtpInput] = useState("");
   const [handoffLoading, setHandoffLoading] = useState(false);
 
   const isTryBuy = order.deliveryAddr?.includes(" | Try & Buy") || order.isTryAndBuy;
@@ -36,8 +36,16 @@ export default function RiderDeliveryScreen({ route, navigation }) {
     socket.emit("join_order_room", order.id);
 
     const handleUpdate = ({ order: updatedOrder }) => {
-      if (updatedOrder && updatedOrder.id === order.id) {
-        setOrder(updatedOrder);
+      if (!updatedOrder || updatedOrder.id !== order.id) return;
+      setOrder(updatedOrder);
+      if (updatedOrder.status === "DELIVERED") {
+        navigation.popToTop();
+      } else if (
+        updatedOrder.status === "TRY_BUY_IN_PROGRESS" &&
+        new Date(updatedOrder.tryTimerEnd).getTime() <= 1000
+      ) {
+        const hasReturns = updatedOrder.items.some((i) => i.isReturned);
+        setPendingOtpMode(hasReturns ? "return" : "keep");
       }
     };
 
@@ -147,23 +155,21 @@ export default function RiderDeliveryScreen({ route, navigation }) {
     navigation.popToTop();
   };
 
-  const initiateReturn = () => {
-    setReturnOtpInput("");
-    setShowReturnOtp(true);
-  };
-
-  const submitReturn = async () => {
-    if (!returnOtpInput.trim()) {
-      Alert.alert("Error", "Enter the 6-digit OTP from the customer");
-      return;
-    }
+  const submitOtp = async () => {
+    const trimmed = pendingOtpInput.trim();
+    if (!trimmed) return;
     setLoading(true);
     try {
-      const { data } = await api.post(`/rider/orders/${order.id}/initiate-return`, { otp: returnOtpInput.trim() });
-      setShowReturnOtp(false);
-      setOrder(data.data.order);
+      if (pendingOtpMode === "keep") {
+        await api.post(`/rider/orders/${order.id}/confirm-keep-otp`, { otp: trimmed });
+        navigation.popToTop();
+      } else {
+        const { data } = await api.post(`/rider/orders/${order.id}/initiate-return`, { otp: trimmed });
+        setOrder(data.data.order);
+        setPendingOtpMode(null);
+      }
     } catch (err) {
-      Alert.alert("Error", err.response?.data?.error?.message ?? "Could not initiate return");
+      Alert.alert("Incorrect OTP", err.response?.data?.error?.message ?? "OTP did not match — ask the customer to check their screen.");
     } finally {
       setLoading(false);
     }
@@ -187,46 +193,18 @@ export default function RiderDeliveryScreen({ route, navigation }) {
           <Text style={styles.statusValue}>{order.status.replace(/_/g, " ")}</Text>
         </View>
 
-        {/* Sync Countdown Clock */}
-        {showTimer && (
-          <>
-            <View style={styles.timerCard}>
-              <Ionicons name="time" size={32} color="#012a62" />
-              <Text style={styles.timerLabel}>Try & Buy Timer Active</Text>
-              <Text style={styles.timerClock}>
-                {String(Math.floor(timeLeftSecs / 60)).padStart(2, "0")}:{String(timeLeftSecs % 60).padStart(2, "0")}
-              </Text>
-              <Text style={styles.timerHint}>
-                Customer is trying items at their doorstep. Timer is synchronized.
-              </Text>
-            </View>
-            {showReturnOtp ? (
-              <View style={styles.returnOtpPanel}>
-                <Text style={styles.otpLabel}>ENTER CUSTOMER RETURN OTP</Text>
-                <TextInput
-                  style={styles.otpInput}
-                  placeholder="6-digit code"
-                  placeholderTextColor="#012a6240"
-                  keyboardType="number-pad"
-                  maxLength={6}
-                  value={returnOtpInput}
-                  onChangeText={setReturnOtpInput}
-                  autoFocus
-                />
-                <Text style={styles.otpHint}>The customer's app shows this after they tap "Return".</Text>
-                <Pressable style={[styles.btn, { marginTop: 12 }]} onPress={submitReturn} disabled={loading}>
-                  {loading ? <ActivityIndicator color={S} /> : <Text style={styles.btnText}>Confirm Return</Text>}
-                </Pressable>
-                <Pressable onPress={() => setShowReturnOtp(false)} style={{ marginTop: 10, alignItems: "center" }}>
-                  <Text style={{ color: S, opacity: 0.5, fontSize: 13 }}>Cancel</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable style={styles.returnBtn} onPress={initiateReturn} disabled={loading}>
-                <Text style={styles.returnBtnText}>↩  Customer Returning Items</Text>
-              </Pressable>
-            )}
-          </>
+        {/* Sync Countdown Clock — no rider actions, customer decides */}
+        {showTimer && !pendingOtpMode && (
+          <View style={styles.timerCard}>
+            <Ionicons name="time" size={32} color="#012a62" />
+            <Text style={styles.timerLabel}>Try & Buy Timer Active</Text>
+            <Text style={styles.timerClock}>
+              {String(Math.floor(timeLeftSecs / 60)).padStart(2, "0")}:{String(timeLeftSecs % 60).padStart(2, "0")}
+            </Text>
+            <Text style={styles.timerHint}>
+              Customer is trying items at their doorstep. Timer is synchronized.
+            </Text>
+          </View>
         )}
 
         {/* Return in progress — rider enters runner's OTP at kiosk to hand off package */}
@@ -239,7 +217,7 @@ export default function RiderDeliveryScreen({ route, navigation }) {
             </Text>
             <Text style={styles.returningOtpLabel}>ENTER RUNNER'S CODE</Text>
             <TextInput
-              style={styles.otpInput}
+              style={styles.arrivedOtpInput}
               placeholder="6-digit code"
               placeholderTextColor="#012a6240"
               keyboardType="number-pad"
@@ -294,7 +272,7 @@ export default function RiderDeliveryScreen({ route, navigation }) {
             <View style={{ width: "100%", marginBottom: 16 }}>
               <Text style={styles.otpLabel}>ENTER CUSTOMER HANDOVER OTP</Text>
               <TextInput
-                style={styles.otpInput}
+                style={styles.arrivedOtpInput}
                 placeholder="e.g. 123456"
                 placeholderTextColor="#012a6240"
                 keyboardType="number-pad"
@@ -316,41 +294,57 @@ export default function RiderDeliveryScreen({ route, navigation }) {
           </View>
         )}
 
-        {showTimerExpiredChoice && (
-          showReturnOtp ? (
-            <View style={styles.returnOtpPanel}>
-              <Text style={styles.otpLabel}>ENTER CUSTOMER RETURN OTP</Text>
-              <TextInput
-                style={styles.otpInput}
-                placeholder="6-digit code"
-                placeholderTextColor="#012a6240"
-                keyboardType="number-pad"
-                maxLength={6}
-                value={returnOtpInput}
-                onChangeText={setReturnOtpInput}
-                autoFocus
-              />
-              <Text style={styles.otpHint}>The customer's app shows this after they tap "Return".</Text>
-              <Pressable style={[styles.btn, { marginTop: 12 }]} onPress={submitReturn} disabled={loading}>
-                {loading ? <ActivityIndicator color={S} /> : <Text style={styles.btnText}>Confirm Return</Text>}
-              </Pressable>
-              <Pressable onPress={() => setShowReturnOtp(false)} style={{ marginTop: 10, alignItems: "center" }}>
-                <Text style={{ color: S, opacity: 0.5, fontSize: 13 }}>Cancel</Text>
-              </Pressable>
+        {/* Timer expired — wait for customer to decide on their app */}
+        {showTimerExpiredChoice && !pendingOtpMode && (
+          <View style={styles.expiredCard}>
+            <Text style={styles.expiredIcon}>⏰</Text>
+            <Text style={styles.expiredTitle}>Try & Buy Time's Up</Text>
+            <Text style={styles.expiredSubtitle}>
+              Waiting for the customer to confirm on their app…
+            </Text>
+          </View>
+        )}
+
+        {/* OTP entry — appears when customer makes a decision (socket-triggered) */}
+        {pendingOtpMode && (
+          <View style={styles.otpPanel}>
+            <View style={[styles.otpBadge, pendingOtpMode === "return" && styles.otpBadgeReturn]}>
+              <Text style={styles.otpBadgeText}>
+                {pendingOtpMode === "keep" ? "KEEP" : "RETURN"}
+              </Text>
             </View>
-          ) : (
-            <View style={styles.expiredCard}>
-              <Text style={styles.expiredIcon}>⏰</Text>
-              <Text style={styles.expiredTitle}>Try & Buy Time's Up</Text>
-              <Text style={styles.expiredSubtitle}>What did the customer decide?</Text>
-              <Pressable style={styles.expiredBtnComplete} onPress={closeDelivery} disabled={loading}>
-                <Text style={styles.expiredBtnCompleteText}>Order Complete — Keeps All</Text>
-              </Pressable>
-              <Pressable style={styles.expiredBtnReturn} onPress={initiateReturn} disabled={loading}>
-                <Text style={styles.expiredBtnReturnText}>Return to Mall</Text>
-              </Pressable>
-            </View>
-          )
+            <Text style={styles.otpPanelTitle}>
+              {pendingOtpMode === "keep"
+                ? "Customer is keeping the items"
+                : "Customer is returning the items"}
+            </Text>
+            <Text style={styles.otpPanelHint}>
+              Ask the customer to show you their OTP, then enter it below.
+            </Text>
+            <TextInput
+              style={styles.otpInput}
+              placeholder="6-digit OTP"
+              placeholderTextColor="#ffffff60"
+              keyboardType="number-pad"
+              maxLength={6}
+              value={pendingOtpInput}
+              onChangeText={setPendingOtpInput}
+              autoFocus
+            />
+            <Pressable
+              style={[styles.btn, (!pendingOtpInput.trim() || loading) && { opacity: 0.4 }]}
+              onPress={submitOtp}
+              disabled={!pendingOtpInput.trim() || loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={S} />
+              ) : (
+                <Text style={styles.btnText}>
+                  {pendingOtpMode === "keep" ? "Confirm Keep & Complete" : "Confirm Return Pickup"}
+                </Text>
+              )}
+            </Pressable>
+          </View>
         )}
 
         {order.status === "DELIVERED" && !showTimer && !showTimerExpiredChoice && (
@@ -408,6 +402,20 @@ const styles = StyleSheet.create({
   btnText: { fontSize: 16, fontWeight: "700", color: S },
   otpLabel: { fontSize: 11, fontWeight: "800", color: S, opacity: 0.7, marginBottom: 8 },
   otpInput: {
+    width: "100%",
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 28,
+    color: S,
+    textAlign: "center",
+    fontWeight: "800",
+    letterSpacing: 8,
+    backgroundColor: "#fff",
+    marginBottom: 4,
+  },
+  // used for ARRIVED handover OTP (dark border, cream bg)
+  arrivedOtpInput: {
     borderWidth: 1.5,
     borderColor: S,
     borderRadius: 10,
@@ -444,22 +452,24 @@ const styles = StyleSheet.create({
   },
   completedTitle: { fontSize: 18, fontWeight: "800", color: "#2e7d32", marginTop: 10 },
   completedSubtitle: { fontSize: 12, color: "#2e7d32b0", textAlign: "center", marginTop: 4, lineHeight: 17 },
-  returnBtn: {
+  otpPanel: {
     backgroundColor: S,
-    borderRadius: 10,
-    paddingVertical: 14,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 22,
     alignItems: "center",
-    marginBottom: 22,
+    gap: 12,
   },
-  returnBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
-  returnOtpPanel: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#e8e0cc",
-    marginBottom: 22,
+  otpBadge: {
+    backgroundColor: Y,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
   },
+  otpBadgeReturn: { backgroundColor: "#ff7043" },
+  otpBadgeText: { fontSize: 12, fontWeight: "800", color: S, letterSpacing: 1 },
+  otpPanelTitle: { fontSize: 16, fontWeight: "700", color: "#fff", textAlign: "center" },
+  otpPanelHint: { fontSize: 12, color: "#ffffff99", textAlign: "center", lineHeight: 17 },
   returningCard: {
     backgroundColor: "#fff3e0",
     borderRadius: 14,

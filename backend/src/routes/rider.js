@@ -234,6 +234,35 @@ router.post(
   })
 );
 
+// POST /api/rider/orders/:id/confirm-keep-otp — rider verifies customer keep OTP → DELIVERED
+router.post(
+  "/orders/:id/confirm-keep-otp",
+  requireAuth,
+  requireRole("RIDER"),
+  asyncHandler(async (req, res) => {
+    const { otp } = req.body;
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
+    if (existing.riderId !== req.user.id) return res.status(403).json({ data: null, error: { message: "Not your order", code: "FORBIDDEN" } });
+    if (existing.status !== "TRY_BUY_IN_PROGRESS") return res.status(409).json({ data: null, error: { message: "Order is not in Try & Buy state", code: "CONFLICT" } });
+    if (!otp || existing.deliveryOtp !== String(otp).trim()) {
+      return res.status(400).json({ data: null, error: { message: "Incorrect keep OTP", code: "INVALID_OTP" } });
+    }
+
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status: "DELIVERED", deliveryOtp: null },
+      include: ORDER_INCLUDE,
+    });
+
+    const enriched = enrichOrderWithFees(order, order.customer?.email);
+    const io = req.app.get("io");
+    io.to(`order:${order.id}`).emit("order_update", { order: enriched });
+    io.to(`user:${order.customerId}`).emit("order_update", { order: enriched });
+    res.json({ data: { order: enriched }, error: null });
+  })
+);
+
 // POST /api/rider/orders/:id/confirm-runner-handoff — rider enters runner's OTP at kiosk → WITH_RUNNER (rider released)
 router.post(
   "/orders/:id/confirm-runner-handoff",

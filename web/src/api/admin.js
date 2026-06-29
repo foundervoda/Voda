@@ -50,3 +50,15 @@ export const fetchRiderOrders = (id) =>
 
 export const createPartner = (data) =>
   api.post("/admin/partners", data).then((r) => r.data.data.user);
+
+export const createStore = (data) =>
+  api.post("/admin/stores", data).then((r) => r.data.data);
+
+export const regenerateStoreInvite = (id) =>
+  api.post(`/admin/stores/${id}/regenerate-invite`).then((r) => r.data.data);
+
+export const approveStore = (id) =>
+  api.patch(`/admin/stores/${id}/approve`).then((r) => r.data.data.store);
+
+export const rejectStore = (id) =>
+  api.patch(`/admin/stores/${id}/reject`).then((r) => r.data.data.store);

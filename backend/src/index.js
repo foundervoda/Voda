@@ -12,7 +12,8 @@ const riderRoutes  = require("./routes/rider");
 const adminRoutes  = require("./routes/admin");
 const tnbRoutes    = require("./routes/tnb");
 const storeRoutes  = require("./routes/store");
-const kioskRoutes  = require("./routes/kiosk");
+const kioskRoutes   = require("./routes/kiosk");
+const onboardRoutes = require("./routes/onboard");
 const { errorHandler } = require("./middleware/errorHandler");
 const { registerSocketHandlers } = require("./sockets");
 
@@ -41,7 +42,8 @@ app.use("/api/runner", runnerRoutes);
 app.use("/api/rider",  riderRoutes);
 app.use("/api/admin",  adminRoutes);
 app.use("/api/tnb",    tnbRoutes);
-app.use("/api/kiosk",  kioskRoutes);
+app.use("/api/kiosk",   kioskRoutes);
+app.use("/api/onboard", onboardRoutes);
 
 app.use(errorHandler);
 

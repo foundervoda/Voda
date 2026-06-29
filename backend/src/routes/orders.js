@@ -218,24 +218,41 @@ router.put(
   })
 );
 
-// POST /api/orders/:id/confirm-tb-keeps — Customer locks in keeps & returns
+// POST /api/orders/:id/confirm-tb-keeps — Customer locks in keeps: generates OTP for rider handoff
 router.post(
   "/:id/confirm-tb-keeps",
   requireAuth,
   requireRole("CUSTOMER"),
   asyncHandler(async (req, res) => {
-    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: { items: { include: { product: { select: { category: true } } } } },
+    });
     if (!existing) {
       return res.status(404).json({ data: null, error: { message: "Order not found", code: "NOT_FOUND" } });
     }
-    
-    // Customer confirmed keeps — mark as fully delivered and stop the timer
+    if (existing.status !== "TRY_BUY_IN_PROGRESS") {
+      return res.status(409).json({ data: null, error: { message: "Order is not in Try & Buy progress state", code: "CONFLICT" } });
+    }
+
+    const TB_ELIGIBLE = ["Sneakers", "Apparel"];
+    const hasEligibleItems = existing.items.some((i) => TB_ELIGIBLE.includes(i.product.category));
+
+    let keepOtp = null;
+    const updateData = { tryTimerEnd: new Date(0) };
+
+    if (hasEligibleItems) {
+      // Eligible items were tried — require rider OTP to confirm handoff
+      keepOtp = String(Math.floor(100000 + Math.random() * 900000));
+      updateData.deliveryOtp = keepOtp;
+    } else {
+      // No eligible items — nothing was tried, close order immediately
+      updateData.status = "DELIVERED";
+    }
+
     const order = await prisma.order.update({
       where: { id: req.params.id },
-      data: {
-        status: "DELIVERED",
-        tryTimerEnd: new Date(0),
-      },
+      data: updateData,
       include: {
         items: { include: { product: { include: { store: true } }, variant: true } },
         customer: { select: { email: true } }
@@ -244,11 +261,10 @@ router.post(
 
     const enriched = enrichOrderWithFees(order, order.customer?.email);
 
-    // Notify everyone
     const io = req.app.get("io");
     io.to(`order:${order.id}`).emit("order_update", { order: enriched });
 
-    res.json({ data: { order: enriched }, error: null });
+    res.json({ data: { order: enriched, keepOtp }, error: null });
   })
 );
 

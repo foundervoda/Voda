@@ -57,6 +57,7 @@ export default function TryBuyScreen({ route, navigation }) {
   const [secs, setSecs] = useState(() => calcDisplaySecs(initialOrder.tryTimerEnd));
   const [expired, setExpired] = useState(() => calcDisplaySecs(initialOrder.tryTimerEnd) === 0);
   const [returnOtp, setReturnOtp] = useState(null); // customer→rider OTP after request-return
+  const [keepOtp, setKeepOtp] = useState(null);     // customer→rider OTP after confirm-tb-keeps
   const [selections, setSelections] = useState(() => {
     const initial = {};
     initialOrder.items.forEach((item) => {
@@ -103,6 +104,10 @@ export default function TryBuyScreen({ route, navigation }) {
   };
 
   const items = order.items || [];
+  const isItemEligible = (item) =>
+    item.product.category === "Sneakers" || item.product.category === "Apparel";
+  const anyEligible = items.some(isItemEligible);
+
   let keepsSubtotal = 0;
   let returnsTotal = 0;
   items.forEach((item) => {
@@ -120,9 +125,13 @@ export default function TryBuyScreen({ route, navigation }) {
   const handleKeepAll = async () => {
     setLoading(true);
     try {
-      await api.post(`/orders/${order.id}/confirm-tb-keeps`, { selections });
-      Alert.alert("Confirmed!", "Your items are confirmed as kept. Enjoy!");
-      navigation.popToTop();
+      const { data } = await api.post(`/orders/${order.id}/confirm-tb-keeps`, { selections });
+      if (data.data.keepOtp) {
+        setKeepOtp(data.data.keepOtp);
+      } else {
+        // No eligible items — order closed immediately, go home
+        navigation.popToTop();
+      }
     } catch (err) {
       Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to confirm");
     } finally {
@@ -216,27 +225,30 @@ export default function TryBuyScreen({ route, navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 120 }]}>
-        {/* Timer Card */}
-        <View style={[s.timerCard, expired && s.timerCardExpired]}>
-          <Ionicons name="timer-outline" size={24} color={expired ? "#dc2626" : "#012a62"} />
-          <Text style={[s.timerTitle, expired && s.timerTitleExpired]}>
-            {expired ? "Time's Up — Choose Now" : "Trial Time Remaining"}
-          </Text>
-          <Text style={[s.timerClock, expired && s.timerClockExpired]}>
-            {expired ? "00:00" : `${pad(Math.floor(secs / 60))}:${pad(secs % 60)}`}
-          </Text>
-          <Text style={s.timerSubtitle}>
-            {expired
-              ? "Your 1-minute trial has ended. Please confirm your decision."
-              : "You have 1 minute to try your items. Select what you want to return."}
-          </Text>
-        </View>
+        {/* Timer Card — only shown when there are eligible items to decide on */}
+        {anyEligible && (
+          <View style={[s.timerCard, expired && s.timerCardExpired]}>
+            <Ionicons name="timer-outline" size={24} color={expired ? "#dc2626" : "#012a62"} />
+            <Text style={[s.timerTitle, expired && s.timerTitleExpired]}>
+              {expired ? "Time's Up — Choose Now" : "Trial Time Remaining"}
+            </Text>
+            <Text style={[s.timerClock, expired && s.timerClockExpired]}>
+              {expired ? "00:00" : `${pad(Math.floor(secs / 60))}:${pad(secs % 60)}`}
+            </Text>
+            <Text style={s.timerSubtitle}>
+              {expired
+                ? "Your 1-minute trial has ended. Please confirm your decision."
+                : "You have 1 minute to try your items. Select what you want to return."}
+            </Text>
+          </View>
+        )}
 
         {/* Product Items List */}
-        <Text style={s.sectionLabel}>Select Kept vs Returned Items</Text>
+        <Text style={s.sectionLabel}>
+          {anyEligible ? "Select Kept vs Returned Items" : "Items in your order"}
+        </Text>
         {items.map((item) => {
-          const isEligible =
-            item.product.category === "Sneakers" || item.product.category === "Apparel";
+          const isEligible = isItemEligible(item);
           const choice = selections[item.variantId] || "KEEP";
 
           return (
@@ -320,10 +332,21 @@ export default function TryBuyScreen({ route, navigation }) {
 
       {/* Sticky Bottom Actions */}
       <View style={[s.footer, { paddingBottom: insets.bottom + 12 }]}>
-        {returnOtp ? (
+        {keepOtp ? (
           <>
             <View style={s.otpCard}>
-              <Text style={s.otpTitle}>Show this code to the rider</Text>
+              <Text style={s.otpTitle}>Keep Confirmed — Show code to rider</Text>
+              <Text style={s.otpCode}>{keepOtp}</Text>
+              <Text style={s.otpHint}>The rider will enter this code to confirm you're keeping the items.</Text>
+            </View>
+            <Pressable onPress={() => setKeepOtp(null)} style={s.cancelLink}>
+              <Text style={s.cancelLinkText}>Changed my mind — go back</Text>
+            </Pressable>
+          </>
+        ) : returnOtp ? (
+          <>
+            <View style={s.otpCard}>
+              <Text style={s.otpTitle}>Return Requested — Show code to rider</Text>
               <Text style={s.otpCode}>{returnOtp}</Text>
               <Text style={s.otpHint}>The rider will enter this code to confirm the return pickup.</Text>
             </View>
@@ -333,7 +356,7 @@ export default function TryBuyScreen({ route, navigation }) {
           </>
         ) : (
           <>
-            {anyReturns ? (
+            {anyEligible && anyReturns ? (
               <Pressable
                 style={[s.returnBtn, loading && s.btnDisabled]}
                 onPress={handleReturn}
@@ -351,7 +374,11 @@ export default function TryBuyScreen({ route, navigation }) {
             >
               {loading
                 ? <ActivityIndicator color="#012a62" />
-                : <Text style={s.submitBtnText}>Keep All Items • Pay ₹{formatRupeePrice(finalTotalAmount)}</Text>}
+                : <Text style={s.submitBtnText}>
+                    {anyEligible
+                      ? `Keep All Items • Pay ₹${formatRupeePrice(finalTotalAmount)}`
+                      : `Confirm Delivery • Pay ₹${formatRupeePrice(finalTotalAmount)}`}
+                  </Text>}
             </Pressable>
           </>
         )}

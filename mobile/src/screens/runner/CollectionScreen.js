@@ -20,6 +20,8 @@ export default function CollectionScreen({ route, navigation }) {
   const [checked, setChecked] = useState(new Set());
   const [kioskDone, setKioskDone] = useState(false);
 
+  const store = order.items[0]?.product?.store ?? null;
+
   const fetchKioskStatus = useCallback(async () => {
     try {
       const { data } = await api.get(`/runner/orders/${order.id}`);
@@ -64,11 +66,28 @@ export default function CollectionScreen({ route, navigation }) {
       </View>
 
       <View style={styles.storeBox}>
-        <Text style={styles.storeLabel}>PICK UP — STORE ADDRESS</Text>
-        <Text style={styles.storeAddr}>{order.deliveryAddr}</Text>
+        <View style={styles.storeBoxHeader}>
+          <Ionicons name="storefront" size={14} color="#fdde59" />
+          <Text style={styles.storeLabel}>COLLECT FROM</Text>
+        </View>
+        <Text style={styles.storeAddr}>{store?.name ?? "Store"}</Text>
+        {store?.location ? (
+          <View style={styles.storeDetailRow}>
+            <Ionicons name="location-outline" size={13} color="#fdde5999" style={{ marginRight: 5 }} />
+            <Text style={styles.storeDetailText}>{store.location}</Text>
+          </View>
+        ) : null}
+        {store?.phone ? (
+          <View style={styles.storeDetailRow}>
+            <Ionicons name="call-outline" size={13} color="#fdde5999" style={{ marginRight: 5 }} />
+            <Text style={styles.storeDetailText}>{store.phone}</Text>
+          </View>
+        ) : null}
+        <Text style={styles.orderId}>Order #{order.id.slice(-8).toUpperCase()}</Text>
       </View>
 
-      <View style={[styles.kioskBanner, kioskDone ? styles.kioskDone : styles.kioskPending]}>
+
+<View style={[styles.kioskBanner, kioskDone ? styles.kioskDone : styles.kioskPending]}>
         <Ionicons
           name={kioskDone ? "checkmark-circle" : "scan-outline"}
           size={18}
@@ -166,8 +185,12 @@ const styles = StyleSheet.create({
   kioskPending: { backgroundColor: "#fffbeb", borderColor: "#fcd34d" },
   kioskBannerTitle: { fontSize: 13, fontWeight: "700" },
   kioskBannerSub: { fontSize: 11, marginTop: 1 },
-  storeLabel: { fontSize: 10, fontWeight: "700", color: Y, letterSpacing: 1, marginBottom: 4 },
-  storeAddr: { fontSize: 15, fontWeight: "600", color: "#fff" },
+  storeBoxHeader: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
+  storeLabel: { fontSize: 10, fontWeight: "700", color: Y, letterSpacing: 1, marginLeft: 5 },
+  storeAddr: { fontSize: 17, fontWeight: "800", color: "#fff", marginBottom: 6 },
+  storeDetailRow: { flexDirection: "row", alignItems: "center", marginBottom: 3 },
+  storeDetailText: { fontSize: 12, fontWeight: "500", color: "#ffffff99" },
+  orderId: { fontSize: 11, fontWeight: "700", color: "#ffffff60", marginTop: 8, letterSpacing: 0.5 },
   body: { padding: 16 },
   sectionLabel: {
     fontSize: 10,

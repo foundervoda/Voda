@@ -8,7 +8,7 @@ const router = Router();
 const genOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
 const ORDER_INCLUDE = {
-  items: { include: { product: true, variant: true } },
+  items: { include: { product: { include: { store: { select: { name: true, location: true, phone: true } } } }, variant: true } },
   customer: { select: { id: true, email: true, phone: true } },
 };
 

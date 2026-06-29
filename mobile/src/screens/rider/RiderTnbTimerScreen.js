@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  View, Text, Pressable, StyleSheet, Alert, ActivityIndicator, ScrollView,
+  View, Text, Pressable, StyleSheet, Alert, ActivityIndicator, ScrollView, TextInput, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSocket } from "../../api/SocketContext";
@@ -23,7 +23,10 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
 
   const [order, setOrder] = useState(initialOrder);
   const [secs, setSecs] = useState(() => calcDisplaySecs(initialOrder.tryTimerEnd));
-  const [initiatingReturn, setInitiatingReturn] = useState(false);
+  // "keep" | "return" | null — set when customer has made a decision and we need OTP from them
+  const [pendingOtpMode, setPendingOtpMode] = useState(null);
+  const [otpInput, setOtpInput] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
 
   // Countdown derived from server tryTimerEnd — identical to customer TryBuyScreen
   useEffect(() => {
@@ -33,7 +36,7 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
     return () => clearInterval(interval);
   }, [order.tryTimerEnd]);
 
-  // Auto-navigate when customer confirms via their app
+  // Listen for customer decision — detect keep vs return from socket update
   useEffect(() => {
     if (!socket) return;
     socket.emit("join_order_room", order.id);
@@ -42,9 +45,15 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
       setOrder(updated);
       if (updated.status === "RETURNING") {
         navigation.replace("RiderReturn", { order: updated });
-      } else if (updated.status === "DELIVERED" && new Date(updated.tryTimerEnd).getTime() <= 1000) {
-        // customer confirmed keep — tryTimerEnd was set to epoch (new Date(0))
+      } else if (updated.status === "DELIVERED") {
         navigation.popToTop();
+      } else if (
+        updated.status === "TRY_BUY_IN_PROGRESS" &&
+        new Date(updated.tryTimerEnd).getTime() <= 1000
+      ) {
+        // Customer has made a decision — timer stopped. Check what they chose.
+        const hasReturns = updated.items.some((i) => i.isReturned);
+        setPendingOtpMode(hasReturns ? "return" : "keep");
       }
     };
     socket.on("order_update", handler);
@@ -53,108 +62,157 @@ export default function RiderTnbTimerScreen({ route, navigation }) {
 
   const expired = secs <= 0;
 
-  async function initiateReturn() {
-    Alert.alert(
-      "Confirm Return",
-      "Customer is returning all items? This will start the return journey.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes, Return",
-          style: "destructive",
-          onPress: async () => {
-            setInitiatingReturn(true);
-            try {
-              const { data } = await api.post(`/rider/orders/${order.id}/initiate-return`);
-              navigation.replace("RiderReturn", { order: data.data.order });
-            } catch (err) {
-              Alert.alert("Error", err.response?.data?.error?.message ?? "Failed to initiate return");
-            } finally {
-              setInitiatingReturn(false);
-            }
-          },
-        },
-      ]
-    );
+  async function submitOtp() {
+    const trimmed = otpInput.trim();
+    if (!trimmed) return;
+    setOtpLoading(true);
+    try {
+      if (pendingOtpMode === "keep") {
+        await api.post(`/rider/orders/${order.id}/confirm-keep-otp`, { otp: trimmed });
+        navigation.popToTop();
+      } else {
+        const { data } = await api.post(`/rider/orders/${order.id}/initiate-return`, { otp: trimmed });
+        navigation.replace("RiderReturn", { order: data.data.order });
+      }
+    } catch (err) {
+      Alert.alert("Incorrect OTP", err.response?.data?.error?.message ?? "OTP did not match. Ask the customer to check their screen.");
+    } finally {
+      setOtpLoading(false);
+    }
   }
 
   const ringColor = expired ? "#e53935" : secs <= 10 ? "#ff7043" : Y;
+  const anyEligible = order.items.some(
+    (i) => i.product.category === "Sneakers" || i.product.category === "Apparel"
+  );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Try &amp; Buy</Text>
-        <Text style={styles.subtitle}>
-          {expired ? "Time's up — decide now" : "Customer is trying the items"}
-        </Text>
-      </View>
-
-      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 160 }]}>
-        {/* Timer ring */}
-        <View style={[styles.timerRing, { borderColor: ringColor }]}>
-          {expired ? (
-            <Text style={[styles.timerExpired, { color: "#e53935" }]}>TIME{"\n"}UP</Text>
-          ) : (
-            <>
-              <Text style={[styles.timerCount, { color: ringColor }]}>
-                {pad(Math.floor(secs / 60))}:{pad(secs % 60)}
-              </Text>
-              <Text style={styles.timerSub}>remaining</Text>
-            </>
-          )}
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Try &amp; Buy</Text>
+          <Text style={styles.subtitle}>
+            {pendingOtpMode
+              ? pendingOtpMode === "keep"
+                ? "Customer confirmed keep — enter their OTP"
+                : "Customer requested return — enter their OTP"
+              : !anyEligible
+              ? "No T&B eligible items — waiting for customer to confirm"
+              : expired
+              ? "Time's up — waiting for customer"
+              : "Customer is trying the items"}
+          </Text>
         </View>
 
-        {expired && (
-          <View style={styles.waitingBox}>
-            <Text style={styles.waitingText}>
-              Waiting for customer to confirm on their app…
+        <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 180 }]}>
+          {/* Timer ring — only shown when eligible items exist and customer hasn't decided yet */}
+          {!pendingOtpMode && anyEligible && (
+            <View style={[styles.timerRing, { borderColor: ringColor }]}>
+              {expired ? (
+                <Text style={[styles.timerExpired, { color: "#e53935" }]}>TIME{"\n"}UP</Text>
+              ) : (
+                <>
+                  <Text style={[styles.timerCount, { color: ringColor }]}>
+                    {pad(Math.floor(secs / 60))}:{pad(secs % 60)}
+                  </Text>
+                  <Text style={styles.timerSub}>remaining</Text>
+                </>
+              )}
+            </View>
+          )}
+
+          {/* OTP entry — shown after customer makes a decision */}
+          {pendingOtpMode ? (
+            <View style={styles.otpBox}>
+              <View style={[styles.otpBadge, pendingOtpMode === "return" && styles.otpBadgeReturn]}>
+                <Text style={styles.otpBadgeText}>
+                  {pendingOtpMode === "keep" ? "KEEP" : "RETURN"}
+                </Text>
+              </View>
+              <Text style={styles.otpTitle}>
+                {pendingOtpMode === "keep"
+                  ? "Customer is keeping the items"
+                  : "Customer is returning the items"}
+              </Text>
+              <Text style={styles.otpInstruction}>
+                Ask the customer to show you their OTP on their screen, then enter it below.
+              </Text>
+              <TextInput
+                style={styles.otpInput}
+                placeholder="6-digit OTP"
+                placeholderTextColor="#aaa"
+                keyboardType="number-pad"
+                maxLength={6}
+                value={otpInput}
+                onChangeText={setOtpInput}
+                autoFocus
+              />
+              <Pressable
+                style={[styles.otpBtn, (!otpInput.trim() || otpLoading) && styles.btnDisabled]}
+                onPress={submitOtp}
+                disabled={!otpInput.trim() || otpLoading}
+              >
+                {otpLoading ? (
+                  <ActivityIndicator color="#012a62" />
+                ) : (
+                  <Text style={styles.otpBtnText}>
+                    {pendingOtpMode === "keep" ? "Confirm Keep & Complete" : "Confirm Return Pickup"}
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          ) : expired ? (
+            <View style={styles.waitingBox}>
+              <Text style={styles.waitingText}>
+                Waiting for customer to decide on their app…
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Order summary */}
+          <View style={styles.section}>
+            <Text style={styles.label}>DELIVERY ADDRESS</Text>
+            <Text style={styles.value}>{order.deliveryAddr}</Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.label}>ITEMS</Text>
+            {order.items.map((item) => (
+              <View key={item.id} style={styles.itemRow}>
+                <Text style={styles.qty}>{item.quantity}×</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.itemName}>{item.product.name}</Text>
+                  <Text style={styles.itemVariant}>
+                    {item.variant.size}{item.variant.color ? ` · ${item.variant.color}` : ""}
+                    {item.isReturned ? "  ↩ returning" : ""}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          {!pendingOtpMode && (
+            <Text style={styles.hint}>
+              Stay near the customer until the timer ends or they make a decision.
+            </Text>
+          )}
+        </ScrollView>
+
+        {/* Footer — hidden once OTP mode is active (action is inline) */}
+        {!pendingOtpMode && (
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+            <Text style={styles.footerHint}>
+              {expired
+                ? "Waiting for the customer to confirm on their app."
+                : "Stay with the customer until they decide on the app."}
             </Text>
           </View>
         )}
-
-        {/* Order summary */}
-        <View style={styles.section}>
-          <Text style={styles.label}>DELIVERY ADDRESS</Text>
-          <Text style={styles.value}>{order.deliveryAddr}</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>ITEMS</Text>
-          {order.items.map((item) => (
-            <View key={item.id} style={styles.itemRow}>
-              <Text style={styles.qty}>{item.quantity}×</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.itemName}>{item.product.name}</Text>
-                <Text style={styles.itemVariant}>
-                  {item.variant.size}{item.variant.color ? ` · ${item.variant.color}` : ""}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
-
-        <Text style={styles.hint}>
-          Stay near the customer until the timer ends or they make a decision.
-        </Text>
-      </ScrollView>
-
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Text style={styles.footerHint}>
-          {expired
-            ? "Customer must confirm on their app. Use below only if their app is unavailable."
-            : "Stay with the customer until they decide on the app."}
-        </Text>
-        <Pressable
-          style={[styles.btnReturn, initiatingReturn && styles.btnDisabled]}
-          onPress={initiateReturn}
-          disabled={initiatingReturn}
-        >
-          {initiatingReturn
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.btnReturnText}>Override: Customer Returning Items</Text>}
-        </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -187,6 +245,46 @@ const styles = StyleSheet.create({
   timerCount: { fontSize: 44, fontWeight: "800", letterSpacing: 2 },
   timerSub: { fontSize: 12, color: "#999", marginTop: 2 },
   timerExpired: { fontSize: 28, fontWeight: "800", textAlign: "center", lineHeight: 34 },
+  otpBox: {
+    backgroundColor: S,
+    borderRadius: 16,
+    padding: 20,
+    marginVertical: 16,
+    alignItems: "center",
+    gap: 12,
+  },
+  otpBadge: {
+    backgroundColor: Y,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  otpBadgeReturn: {
+    backgroundColor: "#ff7043",
+  },
+  otpBadgeText: { fontSize: 12, fontWeight: "800", color: S, letterSpacing: 1 },
+  otpTitle: { fontSize: 17, fontWeight: "700", color: "#fff", textAlign: "center" },
+  otpInstruction: { fontSize: 13, color: "#ffffff99", textAlign: "center", lineHeight: 18 },
+  otpInput: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 28,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: 8,
+    color: S,
+  },
+  otpBtn: {
+    width: "100%",
+    backgroundColor: Y,
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  otpBtnText: { fontSize: 15, fontWeight: "700", color: S },
   section: { marginBottom: 20 },
   label: { fontSize: 10, fontWeight: "700", color: S, letterSpacing: 1, opacity: 0.5, marginBottom: 6 },
   value: { fontSize: 15, fontWeight: "500", color: S },
@@ -202,6 +300,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ffe082",
     marginTop: 8,
+    marginBottom: 16,
   },
   waitingText: {
     fontSize: 13,
@@ -214,24 +313,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#aaa",
     textAlign: "center",
-    marginBottom: 10,
     lineHeight: 15,
   },
   footer: {
     position: "absolute",
     bottom: 0, left: 0, right: 0,
     padding: 16,
-    gap: 10,
     backgroundColor: "#fdf9ea",
     borderTopWidth: 1,
     borderColor: "#e8e0cc",
   },
-  btnReturn: {
-    backgroundColor: S,
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  btnReturnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
-  btnDisabled: { opacity: 0.5 },
+  btnDisabled: { opacity: 0.4 },
 });

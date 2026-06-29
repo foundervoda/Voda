@@ -84,4 +84,88 @@ router.post(
   })
 );
 
+// GET /api/store/activity — order activity stats for this store's inventory
+router.get(
+  "/activity",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { storeId } = req.user;
+    if (!storeId) return res.status(400).json({ error: { message: "No store linked" } });
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const activeStatuses = ["PENDING","RUNNER_ASSIGNED","COLLECTED","HANDED_TO_RIDER","OUT_FOR_DELIVERY","ARRIVED","TRY_BUY_IN_PROGRESS","WITH_RUNNER"];
+
+    const [soldToday, soldThisWeek, reserved, returnedItems] = await Promise.all([
+      prisma.orderItem.count({
+        where: { product: { storeId }, order: { status: "DELIVERED", createdAt: { gte: startOfToday } } },
+      }),
+      prisma.orderItem.count({
+        where: { product: { storeId }, order: { status: "DELIVERED", createdAt: { gte: startOfWeek } } },
+      }),
+      prisma.orderItem.count({
+        where: { product: { storeId }, order: { status: { in: activeStatuses } } },
+      }),
+      prisma.orderItem.findMany({
+        where: { product: { storeId }, isReturned: true },
+        include: { product: { select: { id: true, name: true } } },
+      }),
+    ]);
+
+    const byProduct = {};
+    for (const item of returnedItems) {
+      const key = item.product.id;
+      if (!byProduct[key]) byProduct[key] = { id: key, name: item.product.name, count: 0, reasons: {} };
+      byProduct[key].count++;
+      const reason = item.returnReason || "No reason given";
+      byProduct[key].reasons[reason] = (byProduct[key].reasons[reason] || 0) + 1;
+    }
+    const mostReturned = Object.values(byProduct).sort((a, b) => b.count - a.count).slice(0, 5);
+
+    res.json({ data: { soldToday, soldThisWeek, reserved, mostReturned }, error: null });
+  })
+);
+
+// PATCH /api/store/products/:id — edit product details
+router.patch(
+  "/products/:id",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { storeId } = req.user;
+    const existing = await prisma.product.findFirst({ where: { id: req.params.id, storeId } });
+    if (!existing) return res.status(404).json({ error: { message: "Product not found" } });
+
+    const { name, price, category, images } = req.body;
+    const updated = await prisma.product.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name     !== undefined && { name }),
+        ...(price    != null      && { price: parseFloat(price) }),
+        ...(category !== undefined && { category }),
+        ...(images   !== undefined && { images }),
+      },
+    });
+    res.json({ data: { product: updated }, error: null });
+  })
+);
+
+// PATCH /api/store/products/:id/active — toggle active status
+router.patch(
+  "/products/:id/active",
+  ...guard,
+  asyncHandler(async (req, res) => {
+    const { storeId } = req.user;
+    const existing = await prisma.product.findFirst({ where: { id: req.params.id, storeId } });
+    if (!existing) return res.status(404).json({ error: { message: "Product not found" } });
+
+    const updated = await prisma.product.update({
+      where: { id: req.params.id },
+      data: { active: Boolean(req.body.active) },
+    });
+    res.json({ data: { product: updated }, error: null });
+  })
+);
+
 module.exports = router;

@@ -6,13 +6,11 @@ import LoginScreen from "./screens/LoginScreen";
 import OrdersBoard, { StoreTbTab } from "./screens/OrdersBoard";
 import StockView from "./screens/StockView";
 import AdminPanel from "./screens/AdminPanel";
-import KioskScreen from "./screens/KioskScreen";
-
+import OnboardingPage from "./screens/OnboardingPage";
 const TABS = [
   { key: "orders", label: "Orders"    },
   { key: "stock",  label: "Stock"     },
   { key: "trybuy", label: "Try & Buy" },
-  { key: "kiosk",  label: "Kiosk"     },
 ];
 
 function SignOutButton({ onConfirm }) {
@@ -70,7 +68,7 @@ function SignOutButton({ onConfirm }) {
   );
 }
 
-export default function App() {
+function MainApp() {
   const [user, setUser]           = useState(null);
   const [booting, setBooting]     = useState(true);
   const [connected, setConnected] = useState(false);
@@ -175,7 +173,6 @@ export default function App() {
       {tab === "orders" && <OrdersBoard storeId={user.storeId} />}
       {tab === "stock"  && <StockView   storeId={user.storeId} />}
       {tab === "trybuy" && <div className="p-5 max-w-6xl mx-auto"><StoreTbTab /></div>}
-      {tab === "kiosk"  && <KioskScreen />}
 
       {/* Kiosk mismatch alert — shown over any tab */}
       {mismatchAlert && (
@@ -208,4 +205,10 @@ export default function App() {
       )}
     </div>
   );
+}
+
+export default function App() {
+  const onboardToken = window.location.pathname.match(/^\/onboard\/([a-f0-9]{32})$/)?.[1];
+  if (onboardToken) return <OnboardingPage token={onboardToken} />;
+  return <MainApp />;
 }

@@ -17,6 +17,10 @@ import {
   fetchRunnerOrders,
   fetchRiderOrders,
   createPartner,
+  createStore,
+  regenerateStoreInvite,
+  approveStore,
+  rejectStore,
 } from "../api/admin";
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -493,50 +497,282 @@ function Customers({ onFilterOrders }) {
 // ── Stores ────────────────────────────────────────────────────────────────────
 
 function Stores({ onFilterOrders }) {
-  const [stores, setStores]       = useState(null);
+  const [stores, setStores] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: "", location: "", pinCode: "" });
+  const [creating, setCreating] = useState(false);
+  const [newInvite, setNewInvite] = useState(null); // { storeName, url }
+  const [copiedId, setCopiedId] = useState(null);
 
-  useEffect(() => {
-    fetchAdminStores().then(setStores).catch(console.error);
-  }, []);
+  const load = () => fetchAdminStores().then(setStores).catch(console.error);
+  useEffect(() => { load(); }, []);
+
+  const setF = (k) => (e) => setCreateForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    if (!createForm.name || !createForm.location || !createForm.pinCode) return;
+    setCreating(true);
+    try {
+      const { store, inviteUrl } = await createStore(createForm);
+      setNewInvite({ storeName: store.name, url: inviteUrl });
+      setShowCreate(false);
+      setCreateForm({ name: "", location: "", pinCode: "" });
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error?.message ?? "Failed to create store");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleRegenerate(id, name) {
+    if (!confirm(`Regenerate invite link for ${name}? The old link will stop working.`)) return;
+    try {
+      const { inviteUrl } = await regenerateStoreInvite(id);
+      setNewInvite({ storeName: name, url: inviteUrl });
+      load();
+    } catch { alert("Failed to regenerate"); }
+  }
+
+  async function handleApprove(id) {
+    try { await approveStore(id); load(); } catch { alert("Failed to approve"); }
+  }
+
+  async function handleReject(id) {
+    if (!confirm("Reject this store?")) return;
+    try { await rejectStore(id); load(); } catch { alert("Failed to reject"); }
+  }
+
+  function copyLink(url, id) {
+    navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  const pending  = (stores || []).filter((s) => s.status === "PENDING");
+  const invited  = (stores || []).filter((s) => s.status === "INVITED");
+  const active   = (stores || []).filter((s) => s.status === "ACTIVE");
+  const rejected = (stores || []).filter((s) => s.status === "REJECTED");
+
+  const STATUS_BADGE = {
+    ACTIVE:   "bg-emerald-100 text-emerald-700",
+    PENDING:  "bg-amber-100 text-amber-700",
+    INVITED:  "bg-blue-100 text-blue-700",
+    REJECTED: "bg-red-100 text-red-600",
+  };
 
   return (
-    <div>
+    <div className="space-y-6">
+      {/* Create store button */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowCreate(true)}
+          className="bg-navy text-yellow font-black rounded-xl px-5 py-2.5 text-sm hover:opacity-90 transition-opacity"
+        >
+          + Add Store
+        </button>
+      </div>
+
+      {/* New invite banner */}
+      {newInvite && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 flex flex-col gap-3">
+          <p className="text-emerald-800 font-bold text-sm">✓ Invite link ready for <strong>{newInvite.storeName}</strong></p>
+          <p className="text-emerald-600 text-xs">Share this link with the store manager via email or WhatsApp. It expires in 7 days and is single-use.</p>
+          <div className="flex gap-2">
+            <input readOnly value={newInvite.url}
+              className="flex-1 bg-white border border-emerald-200 rounded-xl px-3 py-2 text-xs font-mono text-navy/70 focus:outline-none" />
+            <button onClick={() => { navigator.clipboard.writeText(newInvite.url); }}
+              className="bg-emerald-600 text-white text-xs font-bold rounded-xl px-4 py-2 hover:bg-emerald-700">
+              Copy
+            </button>
+            <a href={`https://wa.me/?text=${encodeURIComponent("You've been invited to join Voda Mall Delivery! Complete your store onboarding here: " + newInvite.url)}`}
+              target="_blank" rel="noreferrer"
+              className="bg-[#25D366] text-white text-xs font-bold rounded-xl px-4 py-2 hover:opacity-90">
+              WhatsApp
+            </a>
+            <button onClick={() => setNewInvite(null)} className="text-emerald-400 hover:text-emerald-600 text-xs px-2">✕</button>
+          </div>
+        </div>
+      )}
+
       {!stores ? <Spinner /> : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-cream border-b border-gray-100">
-              <tr>
-                <Th>Store Name</Th>
-                <Th>Location</Th>
-                <Th>Products</Th>
-                <Th>Orders</Th>
-                <Th></Th>
-              </tr>
-            </thead>
-            <tbody>
-              {stores.length === 0 && (
-                <tr><td colSpan={5} className="text-center py-12 text-gray-400">No stores yet</td></tr>
-              )}
-              {stores.map((s) => (
-                <tr key={s.id} className="border-b border-gray-50 hover:bg-cream/40 transition last:border-0">
-                  <td className="px-4 py-3 font-semibold text-navy">{s.name}</td>
-                  <td className="px-4 py-3 text-gray-500">{s.location}</td>
-                  <td className="px-4 py-3 font-bold text-navy">{s._count.products}</td>
-                  <td className="px-4 py-3 font-bold text-navy">{s.orderCount}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => onFilterOrders(s.id)}
-                        className="text-xs font-semibold text-navy hover:underline"
-                      >
-                        View orders →
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <>
+          {/* Pending Approval */}
+          {pending.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-amber-600 uppercase tracking-widest mb-3">⏳ Awaiting Approval ({pending.length})</p>
+              <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-amber-50 border-b border-amber-100">
+                    <tr>
+                      <Th>Store</Th><Th>Location</Th><Th>Category</Th><Th>Products</Th><Th></Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pending.map((s) => (
+                      <tr key={s.id} className="border-b border-gray-50 last:border-0 hover:bg-cream/40 transition">
+                        <td className="px-4 py-3">
+                          <p className="font-bold text-navy">{s.name}</p>
+                          {s.email && <p className="text-xs text-gray-400">{s.email}</p>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{s.location}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{s.category || "—"}</td>
+                        <td className="px-4 py-3 font-bold text-navy">{s._count.products}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <button onClick={() => handleApprove(s.id)}
+                              className="bg-emerald-500 text-white text-xs font-black rounded-lg px-3 py-1.5 hover:bg-emerald-600">
+                              Approve
+                            </button>
+                            <button onClick={() => handleReject(s.id)}
+                              className="bg-red-100 text-red-600 text-xs font-black rounded-lg px-3 py-1.5 hover:bg-red-200">
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Invite sent, waiting for onboarding */}
+          {invited.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-3">📨 Invite Sent ({invited.length})</p>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-cream border-b border-gray-100">
+                    <tr><Th>Store</Th><Th>Location</Th><Th>Link Expires</Th><Th></Th></tr>
+                  </thead>
+                  <tbody>
+                    {invited.map((s) => (
+                      <tr key={s.id} className="border-b border-gray-50 last:border-0 hover:bg-cream/40 transition">
+                        <td className="px-4 py-3 font-semibold text-navy">{s.name}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{s.location}</td>
+                        <td className="px-4 py-3 text-xs text-gray-400">
+                          {s.inviteExpiry ? new Date(s.inviteExpiry).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            {s.inviteUrl && (
+                              <button onClick={() => copyLink(s.inviteUrl, s.id)}
+                                className="bg-blue-50 text-blue-700 text-xs font-bold rounded-lg px-3 py-1.5 hover:bg-blue-100">
+                                {copiedId === s.id ? "Copied ✓" : "Copy Link"}
+                              </button>
+                            )}
+                            <button onClick={() => handleRegenerate(s.id, s.name)}
+                              className="text-xs text-gray-400 hover:text-navy font-semibold">
+                              Regenerate
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Active stores */}
+          <div>
+            <p className="text-xs font-bold text-navy/40 uppercase tracking-widest mb-3">Live Stores ({active.length})</p>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-cream border-b border-gray-100">
+                  <tr><Th>Store Name</Th><Th>Location</Th><Th>Products</Th><Th>Orders</Th><Th></Th></tr>
+                </thead>
+                <tbody>
+                  {active.length === 0 && (
+                    <tr><td colSpan={5} className="text-center py-8 text-gray-400 text-sm">No active stores yet</td></tr>
+                  )}
+                  {active.map((s) => (
+                    <tr key={s.id} className="border-b border-gray-50 last:border-0 hover:bg-cream/40 transition">
+                      <td className="px-4 py-3 font-semibold text-navy">{s.name}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">{s.location}</td>
+                      <td className="px-4 py-3 font-bold text-navy">{s._count.products}</td>
+                      <td className="px-4 py-3 font-bold text-navy">{s.orderCount}</td>
+                      <td className="px-4 py-3">
+                        <button onClick={() => onFilterOrders(s.id)} className="text-xs font-semibold text-navy hover:underline">
+                          View orders →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Rejected */}
+          {rejected.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-red-400 uppercase tracking-widest mb-3">Rejected ({rejected.length})</p>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-cream border-b border-gray-100">
+                    <tr><Th>Store</Th><Th>Location</Th><Th></Th></tr>
+                  </thead>
+                  <tbody>
+                    {rejected.map((s) => (
+                      <tr key={s.id} className="border-b border-gray-50 last:border-0">
+                        <td className="px-4 py-3 text-gray-400 font-semibold">{s.name}</td>
+                        <td className="px-4 py-3 text-gray-400 text-xs">{s.location}</td>
+                        <td className="px-4 py-3">
+                          <button onClick={() => handleRegenerate(s.id, s.name)}
+                            className="text-xs text-gray-400 hover:text-navy font-semibold">
+                            Re-invite
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Create store modal */}
+      {showCreate && (
+        <div className="fixed inset-0 bg-navy/60 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8">
+            <h2 className="text-xl font-black text-navy mb-1">Add New Store</h2>
+            <p className="text-navy/50 text-sm mb-6">Enter the store details and a PIN code. The store manager will verify with this PIN when they click the invite link.</p>
+            <form onSubmit={handleCreate} className="flex flex-col gap-4">
+              <div>
+                <label className="text-xs font-bold text-navy/40 uppercase tracking-widest block mb-1">Store Name *</label>
+                <input value={createForm.name} onChange={setF("name")} placeholder="e.g. Sneaker House"
+                  className="w-full border border-navy/15 rounded-xl px-4 py-3 text-navy text-sm focus:outline-none focus:border-navy" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-navy/40 uppercase tracking-widest block mb-1">Mall Location *</label>
+                <input value={createForm.location} onChange={setF("location")} placeholder="e.g. Level 1, Unit 12"
+                  className="w-full border border-navy/15 rounded-xl px-4 py-3 text-navy text-sm focus:outline-none focus:border-navy" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-navy/40 uppercase tracking-widest block mb-1">PIN Code *</label>
+                <input value={createForm.pinCode} onChange={setF("pinCode")} placeholder="e.g. 682038"
+                  className="w-full border border-navy/15 rounded-xl px-4 py-3 text-navy text-sm font-mono tracking-widest focus:outline-none focus:border-navy" />
+                <p className="text-xs text-navy/30 mt-1">The store manager must enter this to access the onboarding form.</p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowCreate(false)}
+                  className="flex-1 border border-navy/20 text-navy font-bold rounded-xl py-3 text-sm hover:bg-navy/5">
+                  Cancel
+                </button>
+                <button type="submit" disabled={creating || !createForm.name || !createForm.location || !createForm.pinCode}
+                  className="flex-1 bg-navy text-yellow font-black rounded-xl py-3 text-sm disabled:opacity-40">
+                  {creating ? "Creating…" : "Create & Get Link"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
@@ -936,12 +1172,17 @@ function TryBuyToggles() {
 
 function ReturnAnalytics() {
   const [analytics, setAnalytics] = useState(null);
+  const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    fetchAdminReturnAnalytics().then(setAnalytics).catch(console.error);
+    fetchAdminReturnAnalytics().then(setAnalytics).catch((e) => {
+      console.error(e);
+      setError(e?.response?.data?.error?.message ?? "Failed to load return analytics");
+    });
   }, []);
 
+  if (error) return <p className="text-red-500 text-sm p-4">{error}</p>;
   if (!analytics) return <Spinner />;
 
   const visible = analytics.filter((a) => {

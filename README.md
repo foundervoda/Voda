@@ -59,13 +59,13 @@ All accounts use the login screen in the mobile app. Customers enter their phone
 
 | Login code | Notes |
 |---|---|
-| `R000` | Default test runner |
+| `R001` | Default test runner |
 
 ### Delivery riders (mobile app)
 
 | Login code | Notes |
 |---|---|
-| `D000` | Default test rider |
+| `D001` | Default test rider |
 
 ### Store / admin (web dashboard — `localhost:5173`)
 
