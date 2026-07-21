@@ -33,9 +33,7 @@ const RETURN_REASONS = [
   "Ordered by mistake"
 ];
 
-// Server sets tryTimerEnd = now + 5 min; display window = 1 min.
-// Offset between them = 4 min. Both screens derive from the same server timestamp.
-const DISPLAY_OFFSET_MS = 4 * 60 * 1000;
+const DISPLAY_OFFSET_MS = 0;
 
 function calcDisplaySecs(tryTimerEnd) {
   if (!tryTimerEnd) return 0;

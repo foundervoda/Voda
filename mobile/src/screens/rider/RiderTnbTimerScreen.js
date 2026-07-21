@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSocket } from "../../api/SocketContext";
 import { api } from "../../api/client";
 
-const DISPLAY_OFFSET_MS = 4 * 60 * 1000; // server window (5min) minus display window (1min)
+const DISPLAY_OFFSET_MS = 0;
 
 function calcDisplaySecs(tryTimerEnd) {
   if (!tryTimerEnd) return 0;

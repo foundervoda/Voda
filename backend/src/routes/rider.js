@@ -162,10 +162,7 @@ router.post(
       return res.status(400).json({ data: null, error: { message: "Incorrect OTP code", code: "INVALID_OTP" } });
     }
 
-    // 5-minute server window keeps the order out of history while customer decides.
-    // Client UI shows a 1-minute countdown independently.
-    const TNB_SERVER_WINDOW_MS = 5 * 60 * 1000;
-    const TNB_DISPLAY_MS       = 60 * 1000;
+    const TNB_SERVER_WINDOW_MS = 3 * 60 * 1000;
     const tryTimerEnd    = isTryBuy ? new Date(Date.now() + TNB_SERVER_WINDOW_MS) : null;
     const tnbDisplayEnd  = isTryBuy ? new Date(Date.now() + TNB_DISPLAY_MS).toISOString() : null;
 
