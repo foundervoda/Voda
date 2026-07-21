@@ -55,6 +55,7 @@ const enrichOrderWithFees = (order, customerEmail) => {
     isGold,
     isPlatinum,
     isSubscriber,
+    isTryAndBuy,
     deliveryFee,
     tryAndBuyFee,
     totalAmount: finalTotal,

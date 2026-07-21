@@ -71,7 +71,7 @@ export default function OrderConfirmScreen({ route, navigation }) {
             {order.isTryAndBuy ? (
               <Text style={s.freeText}>Active ({order.isPlatinum ? "Platinum" : "Gold"} - FREE)</Text>
             ) : (
-              <Text style={s.inactiveText}>Not Available (Boots only)</Text>
+              <Text style={s.inactiveText}>Not available for these items</Text>
             )}
           </View>
         )}
