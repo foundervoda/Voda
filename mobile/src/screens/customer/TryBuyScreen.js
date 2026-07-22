@@ -235,8 +235,8 @@ export default function TryBuyScreen({ route, navigation }) {
             </Text>
             <Text style={s.timerSubtitle}>
               {expired
-                ? "Your 1-minute trial has ended. Please confirm your decision."
-                : "You have 1 minute to try your items. Select what you want to return."}
+                ? "Your 3-minute trial has ended. Please confirm your decision."
+                : "You have 3 minutes to try your items. Select what you want to return."}
             </Text>
           </View>
         )}

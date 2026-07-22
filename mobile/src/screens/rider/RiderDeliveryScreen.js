@@ -18,11 +18,9 @@ export default function RiderDeliveryScreen({ route, navigation }) {
 
   const isTryBuy = order.deliveryAddr?.includes(" | Try & Buy") || order.isTryAndBuy;
 
-  // Derive 1-minute display countdown from server tryTimerEnd (same formula as customer TryBuyScreen)
-  const DISPLAY_OFFSET_MS = 4 * 60 * 1000;
   function calcDisplaySecs(end) {
     if (!end) return 0;
-    return Math.max(0, Math.floor((new Date(end).getTime() - DISPLAY_OFFSET_MS - Date.now()) / 1000));
+    return Math.max(0, Math.floor((new Date(end).getTime() - Date.now()) / 1000));
   }
 
   const [timeLeftSecs, setTimeLeftSecs] = useState(() => calcDisplaySecs(order.tryTimerEnd));
@@ -56,7 +54,7 @@ export default function RiderDeliveryScreen({ route, navigation }) {
     };
   }, [socket, order.id]);
 
-  // 1-minute display countdown from server tryTimerEnd — synced with customer TryBuyScreen
+  // Countdown from server tryTimerEnd — synced with customer TryBuyScreen
   useEffect(() => {
     if (order.status !== "TRY_BUY_IN_PROGRESS" || !order.tryTimerEnd) return;
     const interval = setInterval(() => {
