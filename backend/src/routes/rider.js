@@ -164,7 +164,7 @@ router.post(
 
     const TNB_SERVER_WINDOW_MS = 3 * 60 * 1000;
     const tryTimerEnd    = isTryBuy ? new Date(Date.now() + TNB_SERVER_WINDOW_MS) : null;
-    const tnbDisplayEnd  = isTryBuy ? new Date(Date.now() + TNB_DISPLAY_MS).toISOString() : null;
+    const tnbDisplayEnd  = isTryBuy ? tryTimerEnd.toISOString() : null;
 
     const order = await prisma.order.update({
       where: { id: req.params.id },
